@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "@fontsource/alexandria/300.css";
+@import "@fontsource/alexandria/400.css";
+@import "@fontsource/alexandria/500.css";
+@import "@fontsource/alexandria/600.css";
+@import "@fontsource/alexandria/700.css";
+@import "@fontsource/el-messiri/400.css";
+@import "@fontsource/el-messiri/500.css";
+@import "@fontsource/el-messiri/600.css";
+@import "@fontsource/el-messiri/700.css";
+@import "@fontsource/cormorant-garamond/400.css";
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/600.css";
+
+@theme inline {
+  --color-aura-black: #111111;
+  --color-aura-offwhite: #F7F4EF;
+  --color-aura-sand: #D8C8B5;
+  --color-aura-gold: #B79B6C;
+  --font-sans: "Alexandria", sans-serif;
+  --font-display: "El Messiri", "Alexandria", sans-serif;
+  --font-brand: "Cormorant Garamond", Georgia, serif;
+}
+
+:root {
+  --aura-black: #111111;
+  --aura-offwhite: #F7F4EF;
+  --aura-sand: #D8C8B5;
+  --aura-gold: #B79B6C;
+}
+
+html {
+  direction: rtl;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  font-family: "Alexandria", sans-serif;
+}
+
+body {
+  background-color: var(--aura-offwhite);
+  color: var(--aura-black);
+  font-family: "Alexandria", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  min-height: 100vh;
+  letter-spacing: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.font-brand {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  letter-spacing: 0.24em;
+}
+
+.font-editorial {
+  font-family: "El Messiri", "Alexandria", sans-serif;
+  font-weight: 500;
+}
+
+@keyframes auraFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auraFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-aura-fade-up {
+  animation: auraFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-aura-fade-in {
+  animation: auraFadeIn 0.55s ease-out both;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+::selection {
+  background-color: #B79B6C;
+  color: #111111;
+}

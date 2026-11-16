@@ -1,0 +1,30 @@
+# Dependencies
+node_modules
+
+# Next.js
+.next
+out
+next-env.d.ts
+
+# TypeScript
+*.tsbuildinfo
+
+# Local SQLite database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Runtime uploads
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs / OS / local tooling
+*.log
+.DS_Store
+.vercel
+coverage
