@@ -1,5 +1,5 @@
 import { queryAll, queryOne, type DbClient } from "@/db";
-import { computeProductPricing, getActivePromotions } from "./pricing";
+import { computeProductPricing, getActivePromotions, type PromotionRow } from "./pricing";
 
 export interface PaymentMethodConfig {
   id: string;
@@ -213,7 +213,8 @@ export async function getHomepageSections(
 }
 
 async function hydrateProducts(
-  rawRows: Record<string, unknown>[]
+  rawRows: Record<string, unknown>[],
+  promotions?: PromotionRow[]
 ): Promise<StoreProductCard[]> {
   if (rawRows.length === 0) return [];
   const ids = rawRows.map((r) => Number(r.id));
@@ -249,7 +250,7 @@ async function hydrateProducts(
        ORDER BY av.sort_order ASC`,
       ...ids
     ),
-    getActivePromotions(),
+    promotions ? Promise.resolve(promotions) : getActivePromotions(),
   ]);
 
   const imagesByProd = new Map<
@@ -366,6 +367,10 @@ export async function queryStoreProducts(opts: ProductQueryOptions): Promise<{
   page: number;
   totalPages: number;
 }> {
+  if ((opts.minPrice !== undefined && !Number.isFinite(opts.minPrice)) ||
+      (opts.maxPrice !== undefined && !Number.isFinite(opts.maxPrice))) {
+    return { products: [], total: 0, page: 1, totalPages: 1 };
+  }
   const where: string[] = [
     "p.gender_id = ?",
     "p.status = 'active'",
@@ -386,12 +391,16 @@ export async function queryStoreProducts(opts: ProductQueryOptions): Promise<{
     where.push("p.is_limited_edition = 1");
   } else if (opts.collection === "featured") {
     where.push("p.is_featured = 1");
+  } else if (opts.collection) {
+    where.push("1 = 0");
   }
 
   if (opts.availability === "in_stock") {
     where.push("p.stock_quantity > 0");
   } else if (opts.availability === "out_of_stock") {
     where.push("p.stock_quantity <= 0");
+  } else if (opts.availability) {
+    where.push("1 = 0");
   }
 
   if (opts.search && opts.search.trim()) {
@@ -422,50 +431,52 @@ export async function queryStoreProducts(opts: ProductQueryOptions): Promise<{
     }
   }
 
-  const rawRows = await queryAll<Record<string, unknown>>(
-    `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
-     FROM products p
-     JOIN genders g ON g.id = p.gender_id
-     LEFT JOIN categories c ON c.id = p.category_id
-     WHERE ${where.join(" AND ")}`,
-    ...params
+  const [rawRows, promotions] = await Promise.all([
+    queryAll<Record<string, unknown>>(
+      `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
+       FROM products p
+       JOIN genders g ON g.id = p.gender_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE ${where.join(" AND ")}`,
+      ...params
+    ),
+    getActivePromotions(),
+  ]);
+
+  // Apply every price bound to the same promotion-aware price shown on cards.
+  // Hydrate images and attributes only for the resulting page.
+  const priced = rawRows.map((row) => ({
+    row,
+    finalPrice: computeProductPricing({
+      id: Number(row.id),
+      gender_id: Number(row.gender_id),
+      category_id: row.category_id ? Number(row.category_id) : null,
+      price_iqd: Number(row.price_iqd),
+      discount_price_iqd: row.discount_price_iqd != null ? Number(row.discount_price_iqd) : null,
+    }, promotions).finalPrice,
+  })).filter(({ finalPrice }) =>
+    (opts.minPrice === undefined || Number.isNaN(opts.minPrice) || finalPrice >= opts.minPrice) &&
+    (opts.maxPrice === undefined || Number.isNaN(opts.maxPrice) || finalPrice <= opts.maxPrice)
   );
 
-  let hydrated = await hydrateProducts(rawRows);
-
-  // Price filter applied accurately on effective price (including active promotions)
-  if (typeof opts.minPrice === "number" && !Number.isNaN(opts.minPrice)) {
-    hydrated = hydrated.filter((p) => p.final_price >= opts.minPrice!);
-  }
-  if (typeof opts.maxPrice === "number" && !Number.isNaN(opts.maxPrice)) {
-    hydrated = hydrated.filter((p) => p.final_price <= opts.maxPrice!);
-  }
-
-  // Sort
   const sort = opts.sort || "featured";
-  hydrated.sort((a, b) => {
-    if (sort === "price_asc") return a.final_price - b.final_price;
-    if (sort === "price_desc") return b.final_price - a.final_price;
-    if (sort === "bestselling") return b.sales_count - a.sales_count;
-    if (sort === "newest") return b.id - a.id;
-    // featured default
-    const featDiff = Number(b.is_featured) - Number(a.is_featured);
-    if (featDiff !== 0) return featDiff;
-    return b.sales_count - a.sales_count;
+  priced.sort((a, b) => {
+    if (sort === "price_asc") return a.finalPrice - b.finalPrice;
+    if (sort === "price_desc") return b.finalPrice - a.finalPrice;
+    if (sort === "bestselling") return Number(b.row.sales_count) - Number(a.row.sales_count);
+    if (sort === "newest") return Number(b.row.id) - Number(a.row.id);
+    const featDiff = Number(b.row.is_featured) - Number(a.row.is_featured);
+    return featDiff || Number(b.row.sales_count) - Number(a.row.sales_count);
   });
 
-  const total = hydrated.length;
+  const total = priced.length;
   const limit = Math.max(1, Math.min(48, opts.limit || 12));
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const page = Math.max(1, Math.min(totalPages, opts.page || 1));
   const offset = (page - 1) * limit;
+  const products = await hydrateProducts(priced.slice(offset, offset + limit).map(({ row }) => row), promotions);
 
-  return {
-    products: hydrated.slice(offset, offset + limit),
-    total,
-    page,
-    totalPages,
-  };
+  return { products, total, page, totalPages };
 }
 
 export async function getDynamicFiltersForGender(

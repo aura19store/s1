@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Check, AlertCircle, X } from "lucide-react";
@@ -125,6 +126,21 @@ export function StoreProvider({
   const [isCartOpen, setCartOpen] = useState(false);
   const [isSearchOpen, setSearchOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const cartRevision = useRef(0);
+  const cartMutationQueue = useRef<Promise<void>>(Promise.resolve());
+
+  const queueCartMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    cartRevision.current += 1;
+    const next = cartMutationQueue.current.then(async () => {
+      try {
+        return await operation();
+      } finally {
+        cartRevision.current += 1;
+      }
+    });
+    cartMutationQueue.current = next.then(() => {}, () => {});
+    return next;
+  }, []);
 
   const showToast = useCallback(
     (text: string, type: "success" | "error" = "success") => {
@@ -138,6 +154,7 @@ export function StoreProvider({
   );
 
   const refreshCart = useCallback(async () => {
+    const revision = cartRevision.current;
     try {
       const res = await fetch("/api/store/cart", {
         cache: "no-store",
@@ -145,6 +162,7 @@ export function StoreProvider({
       });
       if (res.ok) {
         const data = await res.json();
+        if (revision !== cartRevision.current) return;
         if (data.guestToken) saveStoredGuestToken(data.guestToken);
         setCart(data);
       }
@@ -181,7 +199,7 @@ export function StoreProvider({
       quantity = 1,
       variantLabel = "",
       openDrawer = true
-    ) => {
+    ) => queueCartMutation(async () => {
       const totalStart = performance.now();
       try {
         const postStart = performance.now();
@@ -211,12 +229,12 @@ export function StoreProvider({
       } finally {
         console.info("CART_TOTAL_MS", Math.round(performance.now() - totalStart));
       }
-    },
-    [showToast]
+    }),
+    [queueCartMutation, showToast]
   );
 
   const updateCartQty = useCallback(
-    async (itemId: number, quantity: number) => {
+    (itemId: number, quantity: number) => queueCartMutation(async () => {
       try {
         const res = await fetch("/api/store/cart", {
           method: "PATCH",
@@ -231,12 +249,12 @@ export function StoreProvider({
       } catch {
         showToast("تعذر تحديث الكمية.", "error");
       }
-    },
-    [showToast]
+    }),
+    [queueCartMutation, showToast]
   );
 
   const removeCartItem = useCallback(
-    async (itemId: number) => {
+    (itemId: number) => queueCartMutation(async () => {
       try {
         const res = await fetch(`/api/store/cart?itemId=${itemId}`, {
           method: "DELETE",
@@ -247,12 +265,14 @@ export function StoreProvider({
           if (data.cart.guestToken) saveStoredGuestToken(data.cart.guestToken);
           setCart(data.cart);
           showToast("تمت إزالة المنتج من السلة.");
+        } else {
+          showToast(data.error || "تعذر إزالة المنتج.", "error");
         }
       } catch {
         showToast("تعذر إزالة المنتج.", "error");
       }
-    },
-    [showToast]
+    }),
+    [queueCartMutation, showToast]
   );
 
   const toggleWishlist = useCallback(

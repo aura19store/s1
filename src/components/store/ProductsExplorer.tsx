@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   SlidersHorizontal,
   X,
@@ -48,11 +48,12 @@ export function ProductsExplorer({
   pageDescription?: string;
   initialData: InitialExplorerData;
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const activeRequest = useRef<AbortController | null>(null);
 
   const [data, setData] = useState<InitialExplorerData>(initialData);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Filter states synced with URL search params
@@ -67,6 +68,8 @@ export function ProductsExplorer({
   );
   const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") || "");
   const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") || "");
+  const [draftMinPrice, setDraftMinPrice] = useState(searchParams.get("minPrice") || "");
+  const [draftMaxPrice, setDraftMaxPrice] = useState(searchParams.get("maxPrice") || "");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [sort, setSort] = useState(searchParams.get("sort") || "featured");
   const [page, setPage] = useState(Number(searchParams.get("page") || "1"));
@@ -84,13 +87,29 @@ export function ProductsExplorer({
 
   // Sync if navigation changes gender or URL params externally
   useEffect(() => {
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    setLoading(false);
+    setLoadError(false);
     setData(initialData);
     setSelectedCategory(lockedCategorySlug || searchParams.get("category") || "");
     setSelectedCollection(searchParams.get("collection") || "");
+    setSelectedAvailability(searchParams.get("availability") || "");
+    setMinPrice(searchParams.get("minPrice") || "");
+    setMaxPrice(searchParams.get("maxPrice") || "");
+    setDraftMinPrice(searchParams.get("minPrice") || "");
+    setDraftMaxPrice(searchParams.get("maxPrice") || "");
+    setSelectedAttrs(Object.fromEntries(
+      Array.from(searchParams.entries())
+        .filter(([key, value]) => key.startsWith("attr_") && value)
+        .map(([key, value]) => [key.slice(5), value.split(",").filter(Boolean)])
+    ));
     setSearchQuery(searchParams.get("q") || "");
     setSort(searchParams.get("sort") || "featured");
     setPage(Number(searchParams.get("page") || "1"));
-  }, [genderSlug, lockedCategorySlug, initialData, searchParams]);
+    // Client-side filter changes update history without replacing server data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genderSlug, lockedCategorySlug, initialData]);
 
   const fetchFiltered = useCallback(
     async (overrides?: {
@@ -130,27 +149,7 @@ export function ProductsExplorer({
         if (vals.length > 0) sp.set(`attr_${slug}`, vals.join(","));
       }
 
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/store/products?${sp.toString()}`, {
-          cache: "no-store",
-        });
-        if (res.ok) {
-          const json = await res.json();
-          setData({
-            products: json.products,
-            total: json.total,
-            page: json.page,
-            totalPages: json.totalPages,
-            filters: json.filters,
-          });
-          setPage(json.page);
-        }
-      } finally {
-        setLoading(false);
-      }
-
-      // Reflect clean URL without gender query param
+      // Keep the URL in sync without a second server navigation for the same filters.
       const urlSp = new URLSearchParams(sp);
       urlSp.delete("gender");
       if (lockedCategorySlug) urlSp.delete("category");
@@ -158,7 +157,38 @@ export function ProductsExplorer({
         ? `/store/${genderSlug}/category/${lockedCategorySlug}`
         : `/store/${genderSlug}/products`;
       const qs = urlSp.toString();
-      router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+      window.history.replaceState(window.history.state, "", qs ? `${basePath}?${qs}` : basePath);
+
+      activeRequest.current?.abort();
+      const controller = new AbortController();
+      activeRequest.current = controller;
+      setLoadError(false);
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/store/products?${sp.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Failed to load products");
+        const json = await res.json();
+        if (activeRequest.current !== controller) return;
+        setData({
+          products: json.products,
+          total: json.total,
+          page: json.page,
+          totalPages: json.totalPages,
+          filters: json.filters,
+        });
+        setPage(json.page);
+      } catch {
+        if (activeRequest.current === controller) {
+          // Never display stale products as matches for a failed filter request.
+          setData((previous) => ({ ...previous, products: [], total: 0, page: 1, totalPages: 1 }));
+          setLoadError(true);
+        }
+      } finally {
+        if (activeRequest.current === controller) setLoading(false);
+      }
     },
     [
       genderSlug,
@@ -171,9 +201,44 @@ export function ProductsExplorer({
       searchQuery,
       sort,
       selectedAttrs,
-      router,
     ]
   );
+
+  useEffect(() => {
+    const onPopState = () => {
+      const basePath = lockedCategorySlug
+        ? `/store/${genderSlug}/category/${lockedCategorySlug}`
+        : `/store/${genderSlug}/products`;
+      if (window.location.pathname.replace(/\/$/, "") !== basePath) return;
+      const params = new URLSearchParams(window.location.search);
+      const category = lockedCategorySlug || params.get("category") || "";
+      const collection = params.get("collection") || "";
+      const availability = params.get("availability") || "";
+      const min = params.get("minPrice") || "";
+      const max = params.get("maxPrice") || "";
+      const q = params.get("q") || "";
+      const nextSort = params.get("sort") || "featured";
+      const attrs = Object.fromEntries(Array.from(params.entries())
+        .filter(([key, value]) => key.startsWith("attr_") && value)
+        .map(([key, value]) => [key.slice(5), value.split(",").filter(Boolean)]));
+      setSelectedCategory(category);
+      setSelectedCollection(collection);
+      setSelectedAvailability(availability);
+      setMinPrice(min);
+      setMaxPrice(max);
+      setDraftMinPrice(min);
+      setDraftMaxPrice(max);
+      setSearchQuery(q);
+      setSort(nextSort);
+      setSelectedAttrs(attrs);
+      void fetchFiltered({ category, collection, availability, minPrice: min, maxPrice: max,
+        q, sort: nextSort, attrs, page: Number(params.get("page") || "1") });
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [fetchFiltered, genderSlug, lockedCategorySlug]);
+
+  useEffect(() => () => activeRequest.current?.abort(), []);
 
   const toggleAttribute = (attrSlug: string, valSlug: string) => {
     const current = selectedAttrs[attrSlug] || [];
@@ -192,10 +257,14 @@ export function ProductsExplorer({
     if (minPrice === nextMin && maxPrice === nextMax) {
       setMinPrice("");
       setMaxPrice("");
+      setDraftMinPrice("");
+      setDraftMaxPrice("");
       fetchFiltered({ minPrice: "", maxPrice: "", page: 1 });
     } else {
       setMinPrice(nextMin);
       setMaxPrice(nextMax);
+      setDraftMinPrice(nextMin);
+      setDraftMaxPrice(nextMax);
       fetchFiltered({ minPrice: nextMin, maxPrice: nextMax, page: 1 });
     }
   };
@@ -206,6 +275,8 @@ export function ProductsExplorer({
     setSelectedAvailability("");
     setMinPrice("");
     setMaxPrice("");
+    setDraftMinPrice("");
+    setDraftMaxPrice("");
     setSearchQuery("");
     setSort("featured");
     setSelectedAttrs({});
@@ -339,8 +410,8 @@ export function ProductsExplorer({
             type="number"
             min={0}
             step={1000}
-            value={minPrice}
-            onChange={(e) => setMinPrice(e.target.value)}
+            value={draftMinPrice}
+            onChange={(e) => setDraftMinPrice(e.target.value)}
             placeholder="من"
             className="bg-white border border-[#D8C8B5] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#111111]"
           />
@@ -348,15 +419,19 @@ export function ProductsExplorer({
             type="number"
             min={0}
             step={1000}
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(e.target.value)}
+            value={draftMaxPrice}
+            onChange={(e) => setDraftMaxPrice(e.target.value)}
             placeholder="إلى"
             className="bg-white border border-[#D8C8B5] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#111111]"
           />
         </div>
         <button
           type="button"
-          onClick={() => fetchFiltered({ minPrice, maxPrice, page: 1 })}
+          onClick={() => {
+            setMinPrice(draftMinPrice);
+            setMaxPrice(draftMaxPrice);
+            fetchFiltered({ minPrice: draftMinPrice, maxPrice: draftMaxPrice, page: 1 });
+          }}
           className="mt-2 w-full py-1.5 bg-[#EFEAE2] hover:bg-[#D8C8B5] text-[#111111] text-xs font-medium transition"
         >
           تطبيق السعر
@@ -629,6 +704,8 @@ export function ProductsExplorer({
                 onClick={() => {
                   setMinPrice("");
                   setMaxPrice("");
+                  setDraftMinPrice("");
+                  setDraftMaxPrice("");
                   fetchFiltered({ minPrice: "", maxPrice: "", page: 1 });
                 }}
                 aria-label="إزالة فلتر السعر"
@@ -675,6 +752,13 @@ export function ProductsExplorer({
             <div className="py-24 flex flex-col items-center justify-center gap-3 text-sm text-[#111111]/65">
               <Loader2 className="w-6 h-6 animate-spin text-[#B79B6C]" />
               <span>جاري تحديث المنتجات...</span>
+            </div>
+          ) : loadError ? (
+            <div role="alert" className="py-20 px-6 bg-white border border-[#D8C8B5]/60 text-center">
+              <p className="text-sm text-[#111111]/65 mb-6">تعذر تحميل المنتجات، يرجى المحاولة مجددًا.</p>
+              <button type="button" onClick={() => void fetchFiltered({ page })} className="px-7 py-3 bg-[#111111] text-[#F7F4EF] text-sm font-medium hover:bg-[#B79B6C] hover:text-[#111111] transition">
+                إعادة المحاولة
+              </button>
             </div>
           ) : data.products.length === 0 ? (
             <div className="py-20 px-6 bg-white border border-[#D8C8B5]/60 text-center">

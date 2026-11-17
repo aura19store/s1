@@ -64,12 +64,24 @@ export default async function CategoryPage({
     return Array.isArray(val) ? val[0] : val || "";
   };
 
+  const attributes: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(sp)) {
+    if (key.startsWith("attr_") && value) {
+      const text = Array.isArray(value) ? value[0] : value;
+      attributes[key.slice(5)] = text.split(",").map((v) => v.trim()).filter(Boolean);
+    }
+  }
+
   const [result, filters] = await Promise.all([
     queryStoreProducts({
       genderId: gender.id,
       categorySlug: category.slug,
       search: getStr("q") || undefined,
       collection: getStr("collection") || undefined,
+      minPrice: getStr("minPrice") ? Number(getStr("minPrice")) : undefined,
+      maxPrice: getStr("maxPrice") ? Number(getStr("maxPrice")) : undefined,
+      availability: (getStr("availability") || "") as "in_stock" | "out_of_stock" | "",
+      attributes,
       sort: getStr("sort") || "featured",
       page: Number(getStr("page") || "1"),
       limit: 12,
