@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
+    "deploy:cloudflare": "OPEN_NEXT_DEPLOY=true wrangler deploy",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
     "seed": "npx tsx src/db/seed.ts"
