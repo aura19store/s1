@@ -1,4 +1,4 @@
-import { queryAll, queryOne } from "@/db";
+import { queryAll, queryOne, type DbClient } from "@/db";
 import { computeProductPricing, getActivePromotions } from "./pricing";
 
 export interface PaymentMethodConfig {
@@ -128,10 +128,9 @@ export interface DynamicFilterGroup {
   }[];
 }
 
-export async function getStoreSettings(): Promise<StoreSettings> {
-  const row = await queryOne<Record<string, unknown>>(
-    `SELECT * FROM store_settings WHERE id = 1`
-  );
+export async function getStoreSettings(db?: DbClient): Promise<StoreSettings> {
+  const sql = `SELECT * FROM store_settings WHERE id = 1`;
+  const row = db ? await db.queryOne<Record<string, unknown>>(sql) : await queryOne<Record<string, unknown>>(sql);
   let paymentMethods: PaymentMethodConfig[] = [];
   let faqs: FaqItem[] = [];
   try {

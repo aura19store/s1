@@ -182,12 +182,19 @@ export function StoreProvider({
       variantLabel = "",
       openDrawer = true
     ) => {
+      const totalStart = performance.now();
       try {
-        const res = await fetch("/api/store/cart", {
-          method: "POST",
-          headers: getGuestTokenHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ productId, quantity, variantLabel }),
-        });
+        const postStart = performance.now();
+        let res: Response;
+        try {
+          res = await fetch("/api/store/cart", {
+            method: "POST",
+            headers: getGuestTokenHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ productId, quantity, variantLabel }),
+          });
+        } finally {
+          console.info("CART_CLIENT_POST_MS", Math.round(performance.now() - postStart));
+        }
         const data = await res.json();
         if (!res.ok) {
           showToast(data.error || "تعذر إضافة المنتج إلى السلة.", "error");
@@ -201,6 +208,8 @@ export function StoreProvider({
       } catch {
         showToast("حدث خطأ في الاتصال، يرجى المحاولة مجددًا.", "error");
         return false;
+      } finally {
+        console.info("CART_TOTAL_MS", Math.round(performance.now() - totalStart));
       }
     },
     [showToast]

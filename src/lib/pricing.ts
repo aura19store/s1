@@ -1,4 +1,4 @@
-import { queryAll } from "@/db";
+import { queryAll, type DbClient } from "@/db";
 
 export interface PromotionRow {
   id: number;
@@ -32,10 +32,9 @@ export interface ComputedPricing {
   promotionName: string | null;
 }
 
-export async function getActivePromotions(): Promise<PromotionRow[]> {
-  const all = await queryAll<PromotionRow>(
-    `SELECT * FROM promotions WHERE is_active = 1`
-  );
+export async function getActivePromotions(db?: DbClient): Promise<PromotionRow[]> {
+  const sql = `SELECT * FROM promotions WHERE is_active = 1`;
+  const all = db ? await db.queryAll<PromotionRow>(sql) : await queryAll<PromotionRow>(sql);
   const now = Date.now();
   return all.filter((promo) => {
     if (promo.starts_at) {

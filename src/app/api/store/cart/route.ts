@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { execute, queryAll, queryOne } from "@/db";
+import { runTransaction, withDbClient, type DbClient } from "@/db";
 import { ensureGuestSessionToken, getGuestSessionToken } from "@/lib/auth";
 import { calculateShippingIQD, computeProductPricing, getActivePromotions } from "@/lib/pricing";
 import { getStoreSettings } from "@/lib/store-queries";
@@ -24,8 +24,21 @@ export interface CartItemResponse {
   promotionName: string | null;
 }
 
-async function buildCartResponse(sessionToken: string | null) {
-  const settings = await getStoreSettings();
+async function timeCartStage<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = performance.now();
+  try {
+    return await fn();
+  } finally {
+    console.info(label, Math.round(performance.now() - start));
+  }
+}
+
+async function buildCartResponse(sessionToken: string | null, db: DbClient, knownCartId?: number) {
+  return timeCartStage("CART_BUILD_RESPONSE_MS", () => buildCartResponseInner(sessionToken, db, knownCartId));
+}
+
+async function buildCartResponseInner(sessionToken: string | null, db: DbClient, knownCartId?: number) {
+  const settings = await timeCartStage("CART_DB_SETTINGS_MS", () => getStoreSettings(db));
   if (!sessionToken) {
     return {
       guestToken: null as string | null,
@@ -41,10 +54,9 @@ async function buildCartResponse(sessionToken: string | null) {
     };
   }
 
-  const cart = await queryOne<{ id: number }>(
-    `SELECT id FROM carts WHERE session_token = ?`,
-    sessionToken
-  );
+  const cart = knownCartId === undefined
+    ? await db.queryOne<{ id: number }>(`SELECT id FROM carts WHERE session_token = ?`, sessionToken)
+    : { id: knownCartId };
   if (!cart) {
     return {
       guestToken: sessionToken,
@@ -61,7 +73,7 @@ async function buildCartResponse(sessionToken: string | null) {
   }
 
   const [rows, promos] = await Promise.all([
-    queryAll<{
+    timeCartStage("CART_DB_ROWS_MS", () => db.queryAll<{
       ci_id: number;
       product_id: number;
       variant_label: string;
@@ -89,8 +101,8 @@ async function buildCartResponse(sessionToken: string | null) {
        WHERE ci.cart_id = ? AND p.status = 'active'
        ORDER BY ci.id DESC`,
       cart.id
-    ),
-    getActivePromotions(),
+    )),
+    timeCartStage("CART_DB_PROMOTIONS_MS", () => getActivePromotions(db)),
   ]);
   let originalSubtotal = 0;
   let subtotalIqd = 0;
@@ -161,7 +173,7 @@ async function buildCartResponse(sessionToken: string | null) {
 
 export async function GET() {
   const token = await getGuestSessionToken();
-  return NextResponse.json(await buildCartResponse(token));
+  return withDbClient(async (db) => NextResponse.json(await buildCartResponse(token, db)));
 }
 
 const addSchema = z.object({
@@ -171,6 +183,7 @@ const addSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const routeStart = performance.now();
   try {
     const body = await request.json();
     const parsed = addSchema.safeParse(body);
@@ -182,76 +195,81 @@ export async function POST(request: NextRequest) {
     }
 
     const { productId, quantity, variantLabel } = parsed.data;
-    const product = await queryOne<{
-      id: number;
-      status: string;
-      stock_quantity: number;
-    }>(`SELECT id, status, stock_quantity FROM products WHERE id = ?`, productId);
+    return await runTransaction(async (db) => {
+      const product = await timeCartStage("CART_DB_PRODUCT_MS", () => db.queryOne<{
+        id: number;
+        status: string;
+        stock_quantity: number;
+      }>(`SELECT id, status, stock_quantity FROM products WHERE id = ?`, productId));
 
-    if (!product || product.status !== "active") {
-      return NextResponse.json(
-        { error: "هذا المنتج غير متوفر حاليًا." },
-        { status: 404 }
-      );
-    }
-    if (product.stock_quantity <= 0) {
-      return NextResponse.json(
-        { error: "عذرًا، نفدت كمية هذا المنتج من المخزون." },
-        { status: 400 }
-      );
-    }
+      if (!product || product.status !== "active") {
+        return NextResponse.json(
+          { error: "هذا المنتج غير متوفر حاليًا." },
+          { status: 404 }
+        );
+      }
+      if (product.stock_quantity <= 0) {
+        return NextResponse.json(
+          { error: "عذرًا، نفدت كمية هذا المنتج من المخزون." },
+          { status: 400 }
+        );
+      }
 
-    const token = await ensureGuestSessionToken();
-    let cart = await queryOne<{ id: number }>(
-      `SELECT id FROM carts WHERE session_token = ?`,
-      token
-    );
-    if (!cart) {
-      const ins = await execute(
-        `INSERT INTO carts (session_token) VALUES (?)`,
-        token
-      );
-      cart = { id: ins.lastInsertRowid };
-    }
+      const token = await ensureGuestSessionToken();
+      const cart = await timeCartStage("CART_DB_CART_MS", async () => {
+        let result = await db.queryOne<{ id: number }>(
+          `SELECT id FROM carts WHERE session_token = ?`, token
+        );
+        if (!result) {
+          const ins = await db.execute(`INSERT INTO carts (session_token) VALUES (?)`, token);
+          result = { id: ins.lastInsertRowid };
+        }
+        return result;
+      });
 
-    const existing = await queryOne<{ id: number; quantity: number }>(
-      `SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_label = ?`,
-      cart.id,
-      productId,
-      variantLabel
-    );
-
-    if (existing) {
-      const nextQty = Math.min(
-        product.stock_quantity,
-        existing.quantity + quantity
-      );
-      await execute(
-        `UPDATE cart_items SET quantity = ? WHERE id = ?`,
-        nextQty,
-        existing.id
-      );
-    } else {
-      const safeQty = Math.min(product.stock_quantity, quantity);
-      await execute(
-        `INSERT INTO cart_items (cart_id, product_id, variant_label, quantity) VALUES (?, ?, ?, ?)`,
+      const existing = await timeCartStage("CART_DB_ITEM_MS", () => db.queryOne<{ id: number; quantity: number }>(
+        `SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_label = ?`,
         cart.id,
         productId,
-        variantLabel,
-        safeQty
-      );
-    }
+        variantLabel
+      ));
 
-    return NextResponse.json({
-      message: "تمت إضافة المنتج إلى السلة بنجاح.",
-      cart: await buildCartResponse(token),
-    });
+      await timeCartStage("CART_DB_WRITE_MS", async () => {
+        if (existing) {
+          const nextQty = Math.min(
+            product.stock_quantity,
+            existing.quantity + quantity
+          );
+          await db.execute(
+            `UPDATE cart_items SET quantity = ? WHERE id = ?`,
+            nextQty,
+            existing.id
+          );
+        } else {
+          const safeQty = Math.min(product.stock_quantity, quantity);
+          await db.execute(
+            `INSERT INTO cart_items (cart_id, product_id, variant_label, quantity) VALUES (?, ?, ?, ?)`,
+            cart.id,
+            productId,
+            variantLabel,
+            safeQty
+          );
+        }
+      });
+
+      return NextResponse.json({
+        message: "تمت إضافة المنتج إلى السلة بنجاح.",
+        cart: await buildCartResponse(token, db, cart.id),
+      });
+    }, { measureCartConnection: true });
   } catch (err) {
     console.error("Cart POST error:", err);
     return NextResponse.json(
       { error: "تعذر إضافة المنتج إلى السلة." },
       { status: 500 }
     );
+  } finally {
+    console.info("CART_ROUTE_TOTAL_MS", Math.round(performance.now() - routeStart));
   }
 }
 
@@ -272,45 +290,47 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "الكمية غير صالحة." }, { status: 400 });
     }
 
-    const cart = await queryOne<{ id: number }>(
-      `SELECT id FROM carts WHERE session_token = ?`,
-      token
-    );
-    if (!cart) {
-      return NextResponse.json({ error: "السلة غير موجودة." }, { status: 404 });
-    }
-
-    const item = await queryOne<{ id: number; product_id: number }>(
-      `SELECT id, product_id FROM cart_items WHERE id = ? AND cart_id = ?`,
-      parsed.data.itemId,
-      cart.id
-    );
-    if (!item) {
-      return NextResponse.json(
-        { error: "العنصر غير موجود في السلة." },
-        { status: 404 }
+    return await withDbClient(async (db) => {
+      const cart = await db.queryOne<{ id: number }>(
+        `SELECT id FROM carts WHERE session_token = ?`,
+        token
       );
-    }
+      if (!cart) {
+        return NextResponse.json({ error: "السلة غير موجودة." }, { status: 404 });
+      }
 
-    if (parsed.data.quantity === 0) {
-      await execute(`DELETE FROM cart_items WHERE id = ?`, item.id);
-    } else {
-      const prod = await queryOne<{ stock_quantity: number }>(
-        `SELECT stock_quantity FROM products WHERE id = ?`,
-        item.product_id
+      const item = await db.queryOne<{ id: number; product_id: number }>(
+        `SELECT id, product_id FROM cart_items WHERE id = ? AND cart_id = ?`,
+        parsed.data.itemId,
+        cart.id
       );
-      const maxStock = prod?.stock_quantity ?? 1;
-      const safeQty = Math.min(maxStock, parsed.data.quantity);
-      await execute(
-        `UPDATE cart_items SET quantity = ? WHERE id = ?`,
-        safeQty,
-        item.id
-      );
-    }
+      if (!item) {
+        return NextResponse.json(
+          { error: "العنصر غير موجود في السلة." },
+          { status: 404 }
+        );
+      }
 
-    return NextResponse.json({
-      message: "تم تحديث السلة.",
-      cart: await buildCartResponse(token),
+      if (parsed.data.quantity === 0) {
+        await db.execute(`DELETE FROM cart_items WHERE id = ?`, item.id);
+      } else {
+        const prod = await db.queryOne<{ stock_quantity: number }>(
+          `SELECT stock_quantity FROM products WHERE id = ?`,
+          item.product_id
+        );
+        const maxStock = prod?.stock_quantity ?? 1;
+        const safeQty = Math.min(maxStock, parsed.data.quantity);
+        await db.execute(
+          `UPDATE cart_items SET quantity = ? WHERE id = ?`,
+          safeQty,
+          item.id
+        );
+      }
+
+      return NextResponse.json({
+        message: "تم تحديث السلة.",
+        cart: await buildCartResponse(token, db, cart.id),
+      });
     });
   } catch (err) {
     console.error("Cart PATCH error:", err);
@@ -324,31 +344,33 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const token = await getGuestSessionToken();
-    if (!token) {
-      return NextResponse.json({ cart: await buildCartResponse(null) });
-    }
-    const cart = await queryOne<{ id: number }>(
-      `SELECT id FROM carts WHERE session_token = ?`,
-      token
-    );
-    if (!cart) {
-      return NextResponse.json({ cart: await buildCartResponse(token) });
-    }
-
-    const itemId = request.nextUrl.searchParams.get("itemId");
-    if (itemId) {
-      await execute(
-        `DELETE FROM cart_items WHERE id = ? AND cart_id = ?`,
-        Number(itemId),
-        cart.id
+    return await withDbClient(async (db) => {
+      if (!token) {
+        return NextResponse.json({ cart: await buildCartResponse(null, db) });
+      }
+      const cart = await db.queryOne<{ id: number }>(
+        `SELECT id FROM carts WHERE session_token = ?`,
+        token
       );
-    } else {
-      await execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
-    }
+      if (!cart) {
+        return NextResponse.json({ cart: await buildCartResponse(token, db) });
+      }
 
-    return NextResponse.json({
-      message: "تم الحذف من السلة.",
-      cart: await buildCartResponse(token),
+      const itemId = request.nextUrl.searchParams.get("itemId");
+      if (itemId) {
+        await db.execute(
+          `DELETE FROM cart_items WHERE id = ? AND cart_id = ?`,
+          Number(itemId),
+          cart.id
+        );
+      } else {
+        await db.execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
+      }
+
+      return NextResponse.json({
+        message: "تم الحذف من السلة.",
+        cart: await buildCartResponse(token, db, cart.id),
+      });
     });
   } catch (err) {
     console.error("Cart DELETE error:", err);

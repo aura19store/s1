@@ -42,6 +42,8 @@ declare global {
   // eslint-disable-next-line no-var
   var __auraDbInitPromise: Promise<void> | undefined;
   // eslint-disable-next-line no-var
+  var __auraSqliteQueue: Promise<void> | undefined;
+  // eslint-disable-next-line no-var
   var __auraPgPool: Pool | undefined;
 }
 
@@ -144,6 +146,20 @@ function createSqliteClient(db: DatabaseSync): DbClient {
       };
     },
   };
+}
+
+// Serialize all access to the shared SQLite connection, including entire transactions.
+// Transaction callbacks must use their provided client instead of the public helpers.
+async function withSqliteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = globalThis.__auraSqliteQueue ?? Promise.resolve();
+  let unlock!: () => void;
+  globalThis.__auraSqliteQueue = new Promise<void>((resolve) => { unlock = resolve; });
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    unlock();
+  }
 }
 
 async function getSqliteDb(): Promise<DatabaseSync> {
@@ -301,11 +317,34 @@ function createPgClientAdapter(runner: Pool | PoolClient): DbClient {
 async function withPgPool<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
   const isWorker = getWorkerConnectionString() !== null;
   const pool = getPgPool();
+  let operationError: unknown;
+  let operationFailed = false;
   try {
     return await fn(pool);
+  } catch (err) {
+    operationFailed = true;
+    operationError = err;
+    throw err;
   } finally {
-    if (isWorker) await pool.end();
+    if (isWorker) {
+      try {
+        await pool.end();
+      } catch (closeError) {
+        if (operationFailed) {
+          throw new AggregateError([operationError, closeError], "Database operation and pool cleanup failed.");
+        }
+        throw closeError;
+      }
+    }
   }
+}
+
+/** Reuse one pool for the duration of a request without sharing Worker I/O across requests. */
+export async function withDbClient<T>(fn: (db: DbClient) => Promise<T>): Promise<T> {
+  if (isPostgresEnabled()) {
+    return withPgPool((pool) => fn(createPgClientAdapter(pool)));
+  }
+  return withSqliteLock(async () => fn(createSqliteClient(await getSqliteDb())));
 }
 
 export async function queryAll<T = Record<string, unknown>>(
@@ -315,8 +354,7 @@ export async function queryAll<T = Record<string, unknown>>(
   if (isPostgresEnabled()) {
     return withPgPool((pool) => createPgClientAdapter(pool).queryAll<T>(sql, ...params));
   }
-  const db = await getSqliteDb();
-  return createSqliteClient(db).queryAll<T>(sql, ...params);
+  return withSqliteLock(async () => createSqliteClient(await getSqliteDb()).queryAll<T>(sql, ...params));
 }
 
 export async function queryOne<T = Record<string, unknown>>(
@@ -326,8 +364,7 @@ export async function queryOne<T = Record<string, unknown>>(
   if (isPostgresEnabled()) {
     return withPgPool((pool) => createPgClientAdapter(pool).queryOne<T>(sql, ...params));
   }
-  const db = await getSqliteDb();
-  return createSqliteClient(db).queryOne<T>(sql, ...params);
+  return withSqliteLock(async () => createSqliteClient(await getSqliteDb()).queryOne<T>(sql, ...params));
 }
 
 export async function execute(
@@ -337,40 +374,75 @@ export async function execute(
   if (isPostgresEnabled()) {
     return withPgPool((pool) => createPgClientAdapter(pool).execute(sql, ...params));
   }
-  const db = await getSqliteDb();
-  return createSqliteClient(db).execute(sql, ...params);
+  return withSqliteLock(async () => createSqliteClient(await getSqliteDb()).execute(sql, ...params));
 }
 
 export async function runTransaction<T>(
-  fn: (tx: DbClient) => Promise<T>
+  fn: (tx: DbClient) => Promise<T>,
+  options?: { measureCartConnection?: boolean }
 ): Promise<T> {
   if (isPostgresEnabled()) {
     return withPgPool(async (pool) => {
-      const client = await pool.connect();
+      const started = options?.measureCartConnection ? performance.now() : 0;
+      let client: PoolClient;
+      try {
+        client = await pool.connect();
+      } finally {
+        if (options?.measureCartConnection) {
+          console.info("CART_DB_CONNECT_MS", Math.round(performance.now() - started));
+        }
+      }
+      let begun = false;
+      let committing = false;
+      let discardClient = false;
       try {
         await client.query("BEGIN");
+        begun = true;
         const result = await fn(createPgClientAdapter(client));
+        committing = true;
         await client.query("COMMIT");
+        begun = false;
         return result;
       } catch (err) {
-        await client.query("ROLLBACK");
+        if (committing) discardClient = true;
+        if (begun) {
+          try {
+            await client.query("ROLLBACK");
+          } catch (rollbackError) {
+            discardClient = true;
+            throw new AggregateError([err, rollbackError], "Transaction and rollback failed.");
+          }
+        } else {
+          // A failed BEGIN may leave the connection unusable.
+          discardClient = true;
+        }
         throw err;
       } finally {
-        client.release();
+        client.release(discardClient);
       }
     });
   }
 
-  const db = await getSqliteDb();
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = await fn(createSqliteClient(db));
-    db.exec("COMMIT");
-    return result;
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+  return withSqliteLock(async () => {
+    const db = await getSqliteDb();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = await fn(createSqliteClient(db));
+      db.exec("COMMIT");
+      return result;
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch (rollbackError) {
+        // Never reuse a connection whose transaction state is unknown.
+        try { db.close(); } catch { /* already unusable */ }
+        globalThis.__auraDb = undefined;
+        globalThis.__auraDbInitPromise = undefined;
+        throw new AggregateError([err, rollbackError], "SQLite transaction and rollback failed.");
+      }
+      throw err;
+    }
+  });
 }
 
 export async function getDbClientForSeeding(): Promise<DbClient> {
@@ -384,10 +456,15 @@ export async function getDbClientForSeeding(): Promise<DbClient> {
     }
     return createPgClientAdapter(getPgPool());
   }
-  if (!globalThis.__auraDb) {
-    globalThis.__auraDb = createSqliteConnection();
-  }
-  return createSqliteClient(globalThis.__auraDb);
+  const withSeedClient = <T>(fn: (db: DbClient) => Promise<T>) => withSqliteLock(async () => {
+    if (!globalThis.__auraDb) globalThis.__auraDb = createSqliteConnection();
+    return fn(createSqliteClient(globalThis.__auraDb));
+  });
+  return {
+    queryAll: (sql, ...params) => withSeedClient((db) => db.queryAll(sql, ...params)),
+    queryOne: (sql, ...params) => withSeedClient((db) => db.queryOne(sql, ...params)),
+    execute: (sql, ...params) => withSeedClient((db) => db.execute(sql, ...params)),
+  };
 }
 
 export async function closeDbPool(): Promise<void> {
