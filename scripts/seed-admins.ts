@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /** Create only missing AURA admin accounts using environment variables. */
 import { Pool, type PoolClient } from "pg";
+import { loadEnvConfig } from "@next/env";
 import { hashPassword } from "../src/lib/password";
 
 const admins = [
@@ -11,6 +12,10 @@ const admins = [
 ] as const;
 
 async function main(): Promise<void> {
+  loadEnvConfig(process.cwd(), false, {
+    error: () => console.error("Could not load environment configuration."),
+    info: () => {},
+  });
   const connectionString = process.env.DATABASE_URL?.trim();
   const password = process.env.ADMIN_SEED_PASSWORD?.trim();
   if (!connectionString || !password) {
