@@ -12,6 +12,8 @@ const admins = [
 ] as const;
 
 async function main(): Promise<void> {
+  // Run from the project root: Next.js loads .env.local there before these reads.
+  // Existing environment variables retain the standard Next.js precedence.
   loadEnvConfig(process.cwd(), false, {
     error: () => console.error("Could not load environment configuration."),
     info: () => {},
