@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { Pool, type PoolClient } from "pg";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { SCHEMA_SQL } from "./schema";
 import { seedDatabase } from "./seed-data";
 
@@ -44,8 +45,23 @@ declare global {
   var __auraPgPool: Pool | undefined;
 }
 
+function getWorkerConnectionString(): string | null {
+  let env: { HYPERDRIVE?: { connectionString?: string } } | undefined;
+  try {
+    env = getCloudflareContext().env as typeof env;
+  } catch {
+    // Ordinary Next.js development and Node.js scripts have no Worker context.
+    return null;
+  }
+  const connectionString = env?.HYPERDRIVE?.connectionString;
+  if (!connectionString) {
+    throw new Error("Cloudflare HYPERDRIVE binding is missing or invalid.");
+  }
+  return connectionString;
+}
+
 export function getPostgresConnectionString(): string {
-  return process.env.DATABASE_URL?.trim() || "";
+  return getWorkerConnectionString() ?? (process.env.DATABASE_URL?.trim() || "");
 }
 
 export function isPostgresEnabled(): boolean {
@@ -64,6 +80,11 @@ function shouldUsePostgresSsl(connectionString: string): boolean {
 }
 
 function getPgPool(): Pool {
+  const workerConnectionString = getWorkerConnectionString();
+  if (workerConnectionString) {
+    // Worker I/O objects must not be shared across requests. Hyperdrive handles pooling.
+    return new Pool({ connectionString: workerConnectionString, max: 1 });
+  }
   if (!globalThis.__auraPgPool) {
     const connectionString = getPostgresConnectionString();
     if (!connectionString) {
@@ -277,12 +298,22 @@ function createPgClientAdapter(runner: Pool | PoolClient): DbClient {
   };
 }
 
+async function withPgPool<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
+  const isWorker = getWorkerConnectionString() !== null;
+  const pool = getPgPool();
+  try {
+    return await fn(pool);
+  } finally {
+    if (isWorker) await pool.end();
+  }
+}
+
 export async function queryAll<T = Record<string, unknown>>(
   sql: string,
   ...params: DbParam[]
 ): Promise<T[]> {
   if (isPostgresEnabled()) {
-    return createPgClientAdapter(getPgPool()).queryAll<T>(sql, ...params);
+    return withPgPool((pool) => createPgClientAdapter(pool).queryAll<T>(sql, ...params));
   }
   const db = await getSqliteDb();
   return createSqliteClient(db).queryAll<T>(sql, ...params);
@@ -293,7 +324,7 @@ export async function queryOne<T = Record<string, unknown>>(
   ...params: DbParam[]
 ): Promise<T | null> {
   if (isPostgresEnabled()) {
-    return createPgClientAdapter(getPgPool()).queryOne<T>(sql, ...params);
+    return withPgPool((pool) => createPgClientAdapter(pool).queryOne<T>(sql, ...params));
   }
   const db = await getSqliteDb();
   return createSqliteClient(db).queryOne<T>(sql, ...params);
@@ -304,7 +335,7 @@ export async function execute(
   ...params: DbParam[]
 ): Promise<ExecuteResult> {
   if (isPostgresEnabled()) {
-    return createPgClientAdapter(getPgPool()).execute(sql, ...params);
+    return withPgPool((pool) => createPgClientAdapter(pool).execute(sql, ...params));
   }
   const db = await getSqliteDb();
   return createSqliteClient(db).execute(sql, ...params);
@@ -314,18 +345,20 @@ export async function runTransaction<T>(
   fn: (tx: DbClient) => Promise<T>
 ): Promise<T> {
   if (isPostgresEnabled()) {
-    const client = await getPgPool().connect();
-    try {
-      await client.query("BEGIN");
-      const result = await fn(createPgClientAdapter(client));
-      await client.query("COMMIT");
-      return result;
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return withPgPool(async (pool) => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await fn(createPgClientAdapter(client));
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
   }
 
   const db = await getSqliteDb();
@@ -342,6 +375,13 @@ export async function runTransaction<T>(
 
 export async function getDbClientForSeeding(): Promise<DbClient> {
   if (isPostgresEnabled()) {
+    if (getWorkerConnectionString()) {
+      return {
+        queryAll: (sql, ...params) => withPgPool((pool) => createPgClientAdapter(pool).queryAll(sql, ...params)),
+        queryOne: (sql, ...params) => withPgPool((pool) => createPgClientAdapter(pool).queryOne(sql, ...params)),
+        execute: (sql, ...params) => withPgPool((pool) => createPgClientAdapter(pool).execute(sql, ...params)),
+      };
+    }
     return createPgClientAdapter(getPgPool());
   }
   if (!globalThis.__auraDb) {

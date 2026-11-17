@@ -3,6 +3,9 @@ node_modules
 
 # Next.js
 .next
+.open-next
+.wrangler
+.dev.vars*
 out
 next-env.d.ts
 
@@ -28,3 +31,7 @@ public/uploads/*
 .DS_Store
 .vercel
 coverage
+
+# Local export archives
+/aura-project.zip
+/aura-postgresql-supabase-integration.zip
