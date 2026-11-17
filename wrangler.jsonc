@@ -9,7 +9,7 @@
     "binding": "ASSETS"
   },
   "services": [
-    { "binding": "WORKER_SELF_REFERENCE", "service": "aurastore" }
+    { "binding": "WORKER_SELF_REFERENCE", "service": "aura" }
   ],
   "hyperdrive": [
     { "binding": "HYPERDRIVE", "id": "30f4b02b95a84de3a095ce0cdce3fa06" }
