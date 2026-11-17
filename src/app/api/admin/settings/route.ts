@@ -7,7 +7,7 @@ import { getStoreSettings } from "@/lib/store-queries";
 export async function GET() {
   const auth = await requireAdminApi("settings");
   if ("error" in auth) return auth.error;
-  return NextResponse.json({ settings: getStoreSettings() });
+  return NextResponse.json({ settings: await getStoreSettings() });
 }
 
 const settingsSchema = z.object({
@@ -60,10 +60,10 @@ export async function PUT(request: NextRequest) {
   }
 
   const d = parsed.data;
-  const current = getStoreSettings();
+  const current = await getStoreSettings();
 
   // Currency is STRICTLY locked to IQD / د.ع and country to IQ in current version
-  execute(
+  await execute(
     `UPDATE store_settings SET
       store_name = ?,
       tagline = ?,
@@ -108,6 +108,6 @@ export async function PUT(request: NextRequest) {
 
   return NextResponse.json({
     message: "تم حفظ إعدادات المتجر بنجاح.",
-    settings: getStoreSettings(),
+    settings: await getStoreSettings(),
   });
 }

@@ -7,21 +7,20 @@ export async function GET() {
   const auth = await requireAdminApi("promotions");
   if ("error" in auth) return auth.error;
 
-  const promotions = queryAll(`
-    SELECT pr.*, g.name as gender_name, c.name as category_name
-    FROM promotions pr
-    LEFT JOIN genders g ON g.id = pr.gender_id
-    LEFT JOIN categories c ON c.id = pr.category_id
-    ORDER BY pr.id DESC
-  `);
-
-  const genders = queryAll(`SELECT id, name FROM genders ORDER BY sort_order ASC`);
-  const categories = queryAll(
-    `SELECT id, gender_id, name FROM categories ORDER BY gender_id ASC, sort_order ASC`
-  );
-  const products = queryAll(
-    `SELECT id, name, sku, gender_id FROM products ORDER BY id DESC`
-  );
+  const [promotions, genders, categories, products] = await Promise.all([
+    queryAll(`
+      SELECT pr.*, g.name as gender_name, c.name as category_name
+      FROM promotions pr
+      LEFT JOIN genders g ON g.id = pr.gender_id
+      LEFT JOIN categories c ON c.id = pr.category_id
+      ORDER BY pr.id DESC
+    `),
+    queryAll(`SELECT id, name FROM genders ORDER BY sort_order ASC`),
+    queryAll(
+      `SELECT id, gender_id, name FROM categories ORDER BY gender_id ASC, sort_order ASC`
+    ),
+    queryAll(`SELECT id, name, sku, gender_id FROM products ORDER BY id DESC`),
+  ]);
 
   return NextResponse.json({ promotions, genders, categories, products });
 }
@@ -62,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const res = execute(
+    const res = await execute(
       `INSERT INTO promotions (
         name, description, discount_type, discount_value, scope_type,
         gender_id, category_id, product_ids_json, starts_at, ends_at, is_active

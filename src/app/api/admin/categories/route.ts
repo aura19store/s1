@@ -12,19 +12,18 @@ export async function GET(request: NextRequest) {
   const where = genderId ? "WHERE c.gender_id = ?" : "";
   const params = genderId ? [Number(genderId)] : [];
 
-  const categories = queryAll(
-    `SELECT c.*, g.name as gender_name, g.slug as gender_slug,
-            (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
-     FROM categories c
-     JOIN genders g ON g.id = c.gender_id
-     ${where}
-     ORDER BY c.gender_id ASC, c.sort_order ASC, c.id ASC`,
-    ...params
-  );
-
-  const genders = queryAll(
-    `SELECT id, slug, name FROM genders ORDER BY sort_order ASC`
-  );
+  const [categories, genders] = await Promise.all([
+    queryAll(
+      `SELECT c.*, g.name as gender_name, g.slug as gender_slug,
+              (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count
+       FROM categories c
+       JOIN genders g ON g.id = c.gender_id
+       ${where}
+       ORDER BY c.gender_id ASC, c.sort_order ASC, c.id ASC`,
+      ...params
+    ),
+    queryAll(`SELECT id, slug, name FROM genders ORDER BY sort_order ASC`),
+  ]);
 
   return NextResponse.json({ categories, genders });
 }
@@ -54,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     const d = parsed.data;
     let slug = slugify(d.name);
-    const dup = queryOne<{ id: number }>(
+    const dup = await queryOne<{ id: number }>(
       `SELECT id FROM categories WHERE gender_id = ? AND slug = ?`,
       d.gender_id,
       slug
@@ -63,12 +62,12 @@ export async function POST(request: NextRequest) {
       slug = `${slug}-${Date.now().toString().slice(-3)}`;
     }
 
-    const maxOrder = queryOne<{ m: number }>(
+    const maxOrder = await queryOne<{ m: number }>(
       `SELECT COALESCE(MAX(sort_order), 0) as m FROM categories WHERE gender_id = ?`,
       d.gender_id
     );
 
-    const res = execute(
+    const res = await execute(
       `INSERT INTO categories (gender_id, parent_id, slug, name, description, image_url, sort_order, is_visible)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       d.gender_id,

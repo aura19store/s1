@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = queryOne<{
+    const user = await queryOne<{
       id: number;
       name: string;
       email: string;

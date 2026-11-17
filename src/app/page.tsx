@@ -5,9 +5,11 @@ import { getGenders, getStoreSettings } from "@/lib/store-queries";
 
 export const dynamic = "force-dynamic";
 
-export default function EntryPage() {
-  const settings = getStoreSettings();
-  const genders = getGenders();
+export default async function EntryPage() {
+  const [settings, genders] = await Promise.all([
+    getStoreSettings(),
+    getGenders(),
+  ]);
 
   return (
     <main className="min-h-screen bg-[#111111] text-[#F7F4EF] flex flex-col justify-between overflow-x-hidden">

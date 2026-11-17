@@ -12,19 +12,22 @@ export async function GET(
 
   const { id } = await context.params;
   const prodId = Number(id);
-  const product = queryOne(`SELECT * FROM products WHERE id = ?`, prodId);
+  const product = await queryOne(`SELECT * FROM products WHERE id = ?`, prodId);
   if (!product) {
     return NextResponse.json({ error: "المنتج غير موجود." }, { status: 404 });
   }
 
-  const images = queryAll(
-    `SELECT id, url, alt_text, sort_order, is_primary FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC`,
-    prodId
-  );
-  const attrValIds = queryAll<{ attribute_value_id: number }>(
-    `SELECT attribute_value_id FROM product_attribute_values WHERE product_id = ?`,
-    prodId
-  ).map((r) => r.attribute_value_id);
+  const [images, attrRows] = await Promise.all([
+    queryAll(
+      `SELECT id, url, alt_text, sort_order, is_primary FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC`,
+      prodId
+    ),
+    queryAll<{ attribute_value_id: number }>(
+      `SELECT attribute_value_id FROM product_attribute_values WHERE product_id = ?`,
+      prodId
+    ),
+  ]);
+  const attrValIds = attrRows.map((r) => Number(r.attribute_value_id));
 
   return NextResponse.json({
     product: {
@@ -75,7 +78,7 @@ export async function PUT(
 
   const { id } = await context.params;
   const prodId = Number(id);
-  const existing = queryOne<{ id: number; price_iqd: number }>(
+  const existing = await queryOne<{ id: number; price_iqd: number }>(
     `SELECT id, price_iqd FROM products WHERE id = ?`,
     prodId
   );
@@ -107,7 +110,7 @@ export async function PUT(
     }
 
     if (d.sku) {
-      const dup = queryOne<{ id: number }>(
+      const dup = await queryOne<{ id: number }>(
         `SELECT id FROM products WHERE sku = ? AND id != ?`,
         d.sku,
         prodId
@@ -120,7 +123,7 @@ export async function PUT(
       }
     }
 
-    runTransaction((db) => {
+    await runTransaction(async (tx) => {
       const fields: string[] = [];
       const values: (string | number | null)[] = [];
       const addField = (col: string, val: string | number | null | undefined) => {
@@ -156,37 +159,40 @@ export async function PUT(
 
       if (fields.length > 0) {
         fields.push(`updated_at = datetime('now')`);
-        db.prepare(
-          `UPDATE products SET ${fields.join(", ")} WHERE id = ?`
-        ).run(...values, prodId);
+        await tx.execute(
+          `UPDATE products SET ${fields.join(", ")} WHERE id = ?`,
+          ...values,
+          prodId
+        );
       }
 
       if (d.images !== undefined) {
-        db.prepare(`DELETE FROM product_images WHERE product_id = ?`).run(prodId);
-        const insImg = db.prepare(
-          `INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary) VALUES (?, ?, ?, ?, ?)`
-        );
-        d.images.forEach((img, idx) => {
-          insImg.run(
+        await tx.execute(`DELETE FROM product_images WHERE product_id = ?`, prodId);
+        for (let idx = 0; idx < d.images.length; idx++) {
+          const img = d.images[idx];
+          await tx.execute(
+            `INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary) VALUES (?, ?, ?, ?, ?)`,
             prodId,
             img.url,
             img.alt_text || d.name || "",
             idx,
             idx === 0 || img.is_primary ? 1 : 0
           );
-        });
+        }
       }
 
       if (d.attribute_value_ids !== undefined) {
-        db.prepare(
-          `DELETE FROM product_attribute_values WHERE product_id = ?`
-        ).run(prodId);
-        const insAttr = db.prepare(
-          `INSERT OR IGNORE INTO product_attribute_values (product_id, attribute_id, attribute_value_id)
-           SELECT ?, attribute_id, id FROM attribute_values WHERE id = ?`
+        await tx.execute(
+          `DELETE FROM product_attribute_values WHERE product_id = ?`,
+          prodId
         );
         for (const valId of d.attribute_value_ids) {
-          insAttr.run(prodId, valId);
+          await tx.execute(
+            `INSERT OR IGNORE INTO product_attribute_values (product_id, attribute_id, attribute_value_id)
+             SELECT ?, attribute_id, id FROM attribute_values WHERE id = ?`,
+            prodId,
+            valId
+          );
         }
       }
     });
@@ -217,7 +223,7 @@ export async function DELETE(
 
   const { id } = await context.params;
   const prodId = Number(id);
-  const res = execute(`DELETE FROM products WHERE id = ?`, prodId);
+  const res = await execute(`DELETE FROM products WHERE id = ?`, prodId);
   if (res.changes === 0) {
     return NextResponse.json({ error: "المنتج غير موجود." }, { status: 404 });
   }

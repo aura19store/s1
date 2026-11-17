@@ -5,7 +5,7 @@ import { getStoreSettings } from "@/lib/store-queries";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const settings = getStoreSettings();
+  const settings = await getStoreSettings();
   return {
     title: {
       default: `${settings.store_name} | ${settings.tagline}`,

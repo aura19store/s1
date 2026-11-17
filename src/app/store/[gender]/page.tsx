@@ -20,8 +20,10 @@ export async function generateMetadata({
   params: Promise<{ gender: string }>;
 }): Promise<Metadata> {
   const { gender: genderSlug } = await params;
-  const gender = getGenderBySlug(genderSlug);
-  const settings = getStoreSettings();
+  const [gender, settings] = await Promise.all([
+    getGenderBySlug(genderSlug),
+    getStoreSettings(),
+  ]);
   if (!gender) return { title: settings.store_name };
 
   const title =
@@ -41,31 +43,35 @@ export default async function GenderHomePage({
   params: Promise<{ gender: string }>;
 }) {
   const { gender: genderSlug } = await params;
-  const gender = getGenderBySlug(genderSlug);
+  const gender = await getGenderBySlug(genderSlug);
   if (!gender) notFound();
 
-  const sections = getHomepageSections(gender.slug);
-  const categories = getCategoriesByGender(gender.id);
+  const [sections, categories, featuredRes, newRes, bestRes] =
+    await Promise.all([
+      getHomepageSections(gender.slug),
+      getCategoriesByGender(gender.id),
+      queryStoreProducts({
+        genderId: gender.id,
+        collection: "featured",
+        limit: 4,
+      }),
+      queryStoreProducts({
+        genderId: gender.id,
+        collection: "new-arrivals",
+        sort: "newest",
+        limit: 4,
+      }),
+      queryStoreProducts({
+        genderId: gender.id,
+        collection: "bestsellers",
+        sort: "bestselling",
+        limit: 4,
+      }),
+    ]);
 
-  const featuredProducts = queryStoreProducts({
-    genderId: gender.id,
-    collection: "featured",
-    limit: 4,
-  }).products;
-
-  const newArrivals = queryStoreProducts({
-    genderId: gender.id,
-    collection: "new-arrivals",
-    sort: "newest",
-    limit: 4,
-  }).products;
-
-  const bestsellers = queryStoreProducts({
-    genderId: gender.id,
-    collection: "bestsellers",
-    sort: "bestselling",
-    limit: 4,
-  }).products;
+  const featuredProducts = featuredRes.products;
+  const newArrivals = newRes.products;
+  const bestsellers = bestRes.products;
 
   return (
     <div className="space-y-0">

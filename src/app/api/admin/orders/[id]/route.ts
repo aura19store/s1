@@ -12,12 +12,12 @@ export async function GET(
 
   const { id } = await context.params;
   const orderId = Number(id);
-  const order = queryOne(`SELECT * FROM orders WHERE id = ?`, orderId);
+  const order = await queryOne(`SELECT * FROM orders WHERE id = ?`, orderId);
   if (!order) {
     return NextResponse.json({ error: "الطلب غير موجود." }, { status: 404 });
   }
 
-  const items = queryAll(
+  const items = await queryAll(
     `SELECT * FROM order_items WHERE order_id = ?`,
     orderId
   );
@@ -45,7 +45,7 @@ export async function PATCH(
 
   const { id } = await context.params;
   const orderId = Number(id);
-  const existing = queryOne<{ id: number; status: string }>(
+  const existing = await queryOne<{ id: number; status: string }>(
     `SELECT id, status FROM orders WHERE id = ?`,
     orderId
   );
@@ -64,19 +64,19 @@ export async function PATCH(
 
   const nextStatus = parsed.data.status;
 
-  runTransaction((db) => {
+  await runTransaction(async (tx) => {
     // If transitioning to cancelled from a non-cancelled state, restore product stock
     if (nextStatus === "cancelled" && existing.status !== "cancelled") {
-      const items = db
-        .prepare(
-          `SELECT product_id, quantity FROM order_items WHERE order_id = ? AND product_id IS NOT NULL`
-        )
-        .all(orderId) as { product_id: number; quantity: number }[];
-      const restore = db.prepare(
-        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`
+      const items = await tx.queryAll<{ product_id: number; quantity: number }>(
+        `SELECT product_id, quantity FROM order_items WHERE order_id = ? AND product_id IS NOT NULL`,
+        orderId
       );
       for (const it of items) {
-        restore.run(it.quantity, it.product_id);
+        await tx.execute(
+          `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+          it.quantity,
+          it.product_id
+        );
       }
     }
 
@@ -87,9 +87,12 @@ export async function PATCH(
         ? "cancelled"
         : "pending";
 
-    db.prepare(
-      `UPDATE orders SET status = ?, payment_status = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(nextStatus, paymentStatus, orderId);
+    await tx.execute(
+      `UPDATE orders SET status = ?, payment_status = ?, updated_at = datetime('now') WHERE id = ?`,
+      nextStatus,
+      paymentStatus,
+      orderId
+    );
   });
 
   return NextResponse.json({ message: "تم تحديث حالة الطلب بنجاح." });

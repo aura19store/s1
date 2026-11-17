@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
     const genderSlug = sp.get("gender") || "men";
-    const gender = getGenderBySlug(genderSlug);
+    const gender = await getGenderBySlug(genderSlug);
     if (!gender) {
       return NextResponse.json(
         { error: "القسم المطلوب غير متوفر." },
@@ -44,21 +44,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const result = queryStoreProducts({
-      genderId: gender.id,
-      categorySlug,
-      search,
-      collection,
-      minPrice,
-      maxPrice,
-      availability,
-      attributes,
-      sort,
-      page,
-      limit,
-    });
-
-    const filters = getDynamicFiltersForGender(gender.id, categorySlug);
+    const [result, filters] = await Promise.all([
+      queryStoreProducts({
+        genderId: gender.id,
+        categorySlug,
+        search,
+        collection,
+        minPrice,
+        maxPrice,
+        availability,
+        attributes,
+        sort,
+        page,
+        limit,
+      }),
+      getDynamicFiltersForGender(gender.id, categorySlug),
+    ]);
 
     return NextResponse.json({
       ...result,

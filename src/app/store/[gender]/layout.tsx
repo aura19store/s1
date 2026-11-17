@@ -23,14 +23,16 @@ export default async function GenderStoreLayout({
   params: Promise<{ gender: string }>;
 }) {
   const { gender: genderSlug } = await params;
-  const activeGender = getGenderBySlug(genderSlug);
+  const activeGender = await getGenderBySlug(genderSlug);
   if (!activeGender) {
     notFound();
   }
 
-  const settings = getStoreSettings();
-  const genders = getGenders();
-  const categories = getCategoriesByGender(activeGender.id);
+  const [settings, genders, categories] = await Promise.all([
+    getStoreSettings(),
+    getGenders(),
+    getCategoriesByGender(activeGender.id),
+  ]);
 
   return (
     <StoreProvider genderSlug={activeGender.slug}>

@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const term = `%${search}%`;
   const params = search ? [term, term, term] : [];
 
-  const customers = queryAll(
+  const customers = await queryAll(
     `SELECT id, name, phone, email, orders_count, total_spent_iqd, last_order_at
      FROM customers
      ${where}

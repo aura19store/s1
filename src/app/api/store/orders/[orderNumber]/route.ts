@@ -6,7 +6,7 @@ export async function GET(
   context: { params: Promise<{ orderNumber: string }> }
 ) {
   const { orderNumber } = await context.params;
-  const order = queryOne<{
+  const order = await queryOne<{
     id: number;
     order_number: string;
     customer_name: string;
@@ -30,7 +30,7 @@ export async function GET(
     return NextResponse.json({ error: "الطلب غير موجود." }, { status: 404 });
   }
 
-  const items = queryAll(
+  const items = await queryAll(
     `SELECT product_name, product_sku, product_image, variant_label, quantity, unit_price_iqd, total_price_iqd
      FROM order_items WHERE order_id = ?`,
     order.id

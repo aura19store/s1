@@ -41,13 +41,13 @@ export async function createAdminSession(userId: number): Promise<string> {
     Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
 
-  execute(
+  await execute(
     `INSERT INTO admin_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)`,
     userId,
     tokenHash,
     expiresAt
   );
-  execute(
+  await execute(
     `UPDATE users SET last_login_at = datetime('now') WHERE id = ?`,
     userId
   );
@@ -64,7 +64,7 @@ export async function destroyAdminSession(): Promise<void> {
   const rawToken = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
   if (rawToken) {
     const tokenHash = hashToken(rawToken);
-    execute(`DELETE FROM admin_sessions WHERE token_hash = ?`, tokenHash);
+    await execute(`DELETE FROM admin_sessions WHERE token_hash = ?`, tokenHash);
   }
   const cookieOpts = await getSessionCookieOptions(0);
   cookieStore.set(ADMIN_COOKIE_NAME, "", cookieOpts);
@@ -76,7 +76,7 @@ export async function getAdminUser(): Promise<AdminUser | null> {
   if (!rawToken) return null;
 
   const tokenHash = hashToken(rawToken);
-  const row = queryOne<{
+  const row = await queryOne<{
     id: number;
     name: string;
     email: string;
@@ -99,7 +99,7 @@ export async function getAdminUser(): Promise<AdminUser | null> {
 
   if (!row || !row.is_active) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    execute(`DELETE FROM admin_sessions WHERE token_hash = ?`, tokenHash);
+    await execute(`DELETE FROM admin_sessions WHERE token_hash = ?`, tokenHash);
     return null;
   }
 

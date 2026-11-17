@@ -8,13 +8,13 @@ export async function GET(request: NextRequest) {
   if ("error" in auth) return auth.error;
 
   const genderSlug = request.nextUrl.searchParams.get("gender") || "men";
-  const sections = queryAll(
-    `SELECT * FROM homepage_sections WHERE gender_slug = ? ORDER BY sort_order ASC, id ASC`,
-    genderSlug
-  );
-  const genders = queryAll(
-    `SELECT * FROM genders ORDER BY sort_order ASC, id ASC`
-  );
+  const [sections, genders] = await Promise.all([
+    queryAll(
+      `SELECT * FROM homepage_sections WHERE gender_slug = ? ORDER BY sort_order ASC, id ASC`,
+      genderSlug
+    ),
+    queryAll(`SELECT * FROM genders ORDER BY sort_order ASC, id ASC`),
+  ]);
 
   return NextResponse.json({ sections, genders });
 }
@@ -45,7 +45,7 @@ export async function PUT(request: NextRequest) {
     // Optional update of entry gender cards
     if (body.target === "gender_entry") {
       const { id, entry_title, entry_subtitle, entry_image } = body;
-      execute(
+      await execute(
         `UPDATE genders SET entry_title = ?, entry_subtitle = ?, entry_image = ? WHERE id = ?`,
         String(entry_title || ""),
         String(entry_subtitle || ""),
@@ -89,7 +89,7 @@ export async function PUT(request: NextRequest) {
 
     if (fields.length > 0) {
       fields.push("updated_at = datetime('now')");
-      execute(
+      await execute(
         `UPDATE homepage_sections SET ${fields.join(", ")} WHERE id = ?`,
         ...params,
         d.id

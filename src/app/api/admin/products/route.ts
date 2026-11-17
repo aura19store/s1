@@ -35,33 +35,35 @@ export async function GET(request: NextRequest) {
     params.push(status);
   }
 
-  const products = queryAll(
-    `SELECT p.*,
-            g.name as gender_name, g.slug as gender_slug,
-            c.name as category_name,
-            (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
-     FROM products p
-     JOIN genders g ON g.id = p.gender_id
-     LEFT JOIN categories c ON c.id = p.category_id
-     WHERE ${where.join(" AND ")}
-     ORDER BY p.id DESC`,
-    ...params
-  );
-
-  const genders = queryAll(`SELECT id, slug, name FROM genders ORDER BY sort_order ASC`);
-  const categories = queryAll(
-    `SELECT id, gender_id, parent_id, name, slug FROM categories ORDER BY gender_id ASC, sort_order ASC`
-  );
-  const attributes = queryAll<{ id: number; slug: string; name: string; type: string }>(
-    `SELECT id, slug, name, type FROM attributes ORDER BY sort_order ASC`
-  );
-  const attrValues = queryAll<{
-    id: number;
-    attribute_id: number;
-    slug: string;
-    value: string;
-    color_hex: string;
-  }>(`SELECT id, attribute_id, slug, value, color_hex FROM attribute_values ORDER BY sort_order ASC`);
+  const [products, genders, categories, attributes, attrValues] =
+    await Promise.all([
+      queryAll(
+        `SELECT p.*,
+                g.name as gender_name, g.slug as gender_slug,
+                c.name as category_name,
+                (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
+         FROM products p
+         JOIN genders g ON g.id = p.gender_id
+         LEFT JOIN categories c ON c.id = p.category_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY p.id DESC`,
+        ...params
+      ),
+      queryAll(`SELECT id, slug, name FROM genders ORDER BY sort_order ASC`),
+      queryAll(
+        `SELECT id, gender_id, parent_id, name, slug FROM categories ORDER BY gender_id ASC, sort_order ASC`
+      ),
+      queryAll<{ id: number; slug: string; name: string; type: string }>(
+        `SELECT id, slug, name, type FROM attributes ORDER BY sort_order ASC`
+      ),
+      queryAll<{
+        id: number;
+        attribute_id: number;
+        slug: string;
+        value: string;
+        color_hex: string;
+      }>(`SELECT id, attribute_id, slug, value, color_hex FROM attribute_values ORDER BY sort_order ASC`),
+    ]);
 
   return NextResponse.json({
     products,
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
     categories,
     attributes: attributes.map((a) => ({
       ...a,
-      values: attrValues.filter((v) => v.attribute_id === a.id),
+      values: attrValues.filter((v) => Number(v.attribute_id) === Number(a.id)),
     })),
   });
 }
@@ -132,7 +134,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existingSku = queryOne<{ id: number }>(
+    const existingSku = await queryOne<{ id: number }>(
       `SELECT id FROM products WHERE sku = ?`,
       data.sku
     );
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     let slug = slugify(data.name);
-    const existingSlug = queryOne<{ id: number }>(
+    const existingSlug = await queryOne<{ id: number }>(
       `SELECT id FROM products WHERE slug = ?`,
       slug
     );
@@ -152,58 +154,55 @@ export async function POST(request: NextRequest) {
       slug = `${slug}-${Date.now().toString().slice(-4)}`;
     }
 
-    const productId = runTransaction((db) => {
-      const res = db
-        .prepare(
-          `INSERT INTO products (
-            sku, slug, name, description, details, materials_info,
-            gender_id, category_id, subcategory_id,
-            price_iqd, discount_price_iqd, stock_quantity, low_stock_threshold,
-            status, is_featured, is_bestseller, is_new_arrival, is_limited_edition, tags
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          data.sku,
-          slug,
-          data.name,
-          data.description,
-          data.details,
-          data.materials_info,
-          data.gender_id,
-          data.category_id ?? null,
-          data.subcategory_id ?? null,
-          data.price_iqd,
-          data.discount_price_iqd ?? null,
-          data.stock_quantity,
-          data.low_stock_threshold,
-          data.status,
-          data.is_featured ? 1 : 0,
-          data.is_bestseller ? 1 : 0,
-          data.is_new_arrival ? 1 : 0,
-          data.is_limited_edition ? 1 : 0,
-          data.tags
-        );
+    const productId = await runTransaction(async (tx) => {
+      const res = await tx.execute(
+        `INSERT INTO products (
+          sku, slug, name, description, details, materials_info,
+          gender_id, category_id, subcategory_id,
+          price_iqd, discount_price_iqd, stock_quantity, low_stock_threshold,
+          status, is_featured, is_bestseller, is_new_arrival, is_limited_edition, tags
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        data.sku,
+        slug,
+        data.name,
+        data.description,
+        data.details,
+        data.materials_info,
+        data.gender_id,
+        data.category_id ?? null,
+        data.subcategory_id ?? null,
+        data.price_iqd,
+        data.discount_price_iqd ?? null,
+        data.stock_quantity,
+        data.low_stock_threshold,
+        data.status,
+        data.is_featured ? 1 : 0,
+        data.is_bestseller ? 1 : 0,
+        data.is_new_arrival ? 1 : 0,
+        data.is_limited_edition ? 1 : 0,
+        data.tags
+      );
       const id = Number(res.lastInsertRowid);
 
-      const insImg = db.prepare(
-        `INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary) VALUES (?, ?, ?, ?, ?)`
-      );
-      data.images.forEach((img, idx) => {
-        insImg.run(
+      for (let idx = 0; idx < data.images.length; idx++) {
+        const img = data.images[idx];
+        await tx.execute(
+          `INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary) VALUES (?, ?, ?, ?, ?)`,
           id,
           img.url,
           img.alt_text || data.name,
           idx,
           idx === 0 || img.is_primary ? 1 : 0
         );
-      });
+      }
 
-      const insAttr = db.prepare(
-        `INSERT OR IGNORE INTO product_attribute_values (product_id, attribute_id, attribute_value_id)
-         SELECT ?, attribute_id, id FROM attribute_values WHERE id = ?`
-      );
       for (const valId of data.attribute_value_ids) {
-        insAttr.run(id, valId);
+        await tx.execute(
+          `INSERT OR IGNORE INTO product_attribute_values (product_id, attribute_id, attribute_value_id)
+           SELECT ?, attribute_id, id FROM attribute_values WHERE id = ?`,
+          id,
+          valId
+        );
       }
 
       return id;

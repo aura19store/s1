@@ -7,13 +7,13 @@ export async function GET(request: NextRequest) {
     const genderSlug = sp.get("gender") || "men";
     const q = (sp.get("q") || "").trim();
 
-    const gender = getGenderBySlug(genderSlug);
+    const gender = await getGenderBySlug(genderSlug);
     if (!gender) {
       return NextResponse.json({ products: [], total: 0 });
     }
 
     if (!q) {
-      const popular = queryStoreProducts({
+      const popular = await queryStoreProducts({
         genderId: gender.id,
         sort: "bestselling",
         limit: 4,
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const res = queryStoreProducts({
+    const res = await queryStoreProducts({
       genderId: gender.id,
       search: q,
       limit: 8,

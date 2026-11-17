@@ -12,7 +12,7 @@ export async function generateMetadata({
   params: Promise<{ gender: string; slug: string }>;
 }): Promise<Metadata> {
   const { gender, slug } = await params;
-  const data = getProductDetailBySlug(gender, slug);
+  const data = await getProductDetailBySlug(gender, slug);
   if (!data) return { title: "المنتج غير موجود" };
 
   return {
@@ -32,10 +32,11 @@ export default async function ProductDetailPage({
   params: Promise<{ gender: string; slug: string }>;
 }) {
   const { gender, slug } = await params;
-  const data = getProductDetailBySlug(gender, slug);
+  const [data, settings] = await Promise.all([
+    getProductDetailBySlug(gender, slug),
+    getStoreSettings(),
+  ]);
   if (!data) notFound();
-
-  const settings = getStoreSettings();
 
   // Arabic JSON-LD Product Structured Data strictly in IQD
   const jsonLd = {

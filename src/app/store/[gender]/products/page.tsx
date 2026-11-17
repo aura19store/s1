@@ -16,7 +16,7 @@ export async function generateMetadata({
   params: Promise<{ gender: string }>;
 }): Promise<Metadata> {
   const { gender: genderSlug } = await params;
-  const gender = getGenderBySlug(genderSlug);
+  const gender = await getGenderBySlug(genderSlug);
   if (!gender) return { title: "المنتجات" };
   const label = gender.slug === "women" ? "النسائي" : "الرجالي";
   return {
@@ -34,7 +34,7 @@ export default async function GenderProductsPage({
 }) {
   const { gender: genderSlug } = await params;
   const sp = await searchParams;
-  const gender = getGenderBySlug(genderSlug);
+  const gender = await getGenderBySlug(genderSlug);
   if (!gender) notFound();
 
   const getStr = (key: string) => {
@@ -62,21 +62,22 @@ export default async function GenderProductsPage({
     }
   }
 
-  const result = queryStoreProducts({
-    genderId: gender.id,
-    categorySlug,
-    collection,
-    search,
-    minPrice,
-    maxPrice,
-    availability,
-    attributes,
-    sort,
-    page,
-    limit: 12,
-  });
-
-  const filters = getDynamicFiltersForGender(gender.id, categorySlug);
+  const [result, filters] = await Promise.all([
+    queryStoreProducts({
+      genderId: gender.id,
+      categorySlug,
+      collection,
+      search,
+      minPrice,
+      maxPrice,
+      availability,
+      attributes,
+      sort,
+      page,
+      limit: 12,
+    }),
+    getDynamicFiltersForGender(gender.id, categorySlug),
+  ]);
 
   const genderLabel = gender.slug === "women" ? "النسائي" : "الرجالي";
   let pageTitle = genderLabel;

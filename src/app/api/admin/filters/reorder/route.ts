@@ -17,9 +17,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "بيانات الترتيب غير صالحة." }, { status: 400 });
   }
 
-  runTransaction((db) => {
-    const stmt = db.prepare(`UPDATE attributes SET sort_order = ? WHERE id = ?`);
-    parsed.data.orderedIds.forEach((id, idx) => stmt.run(idx + 1, id));
+  await runTransaction(async (tx) => {
+    for (let idx = 0; idx < parsed.data.orderedIds.length; idx++) {
+      await tx.execute(
+        `UPDATE attributes SET sort_order = ? WHERE id = ?`,
+        idx + 1,
+        parsed.data.orderedIds[idx]
+      );
+    }
   });
 
   return NextResponse.json({ message: "تم حفظ ترتيب الفلاتر بنجاح." });

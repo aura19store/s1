@@ -128,8 +128,8 @@ export interface DynamicFilterGroup {
   }[];
 }
 
-export function getStoreSettings(): StoreSettings {
-  const row = queryOne<Record<string, unknown>>(
+export async function getStoreSettings(): Promise<StoreSettings> {
+  const row = await queryOne<Record<string, unknown>>(
     `SELECT * FROM store_settings WHERE id = 1`
   );
   let paymentMethods: PaymentMethodConfig[] = [];
@@ -173,14 +173,14 @@ export function getStoreSettings(): StoreSettings {
   };
 }
 
-export function getGenders(): GenderItem[] {
+export async function getGenders(): Promise<GenderItem[]> {
   return queryAll<GenderItem>(
     `SELECT id, slug, name, shop_heading, entry_title, entry_subtitle, entry_image, sort_order
      FROM genders WHERE is_visible = 1 ORDER BY sort_order ASC, id ASC`
   );
 }
 
-export function getGenderBySlug(slug: string): GenderItem | null {
+export async function getGenderBySlug(slug: string): Promise<GenderItem | null> {
   return queryOne<GenderItem>(
     `SELECT id, slug, name, shop_heading, entry_title, entry_subtitle, entry_image, sort_order
      FROM genders WHERE slug = ? AND is_visible = 1`,
@@ -188,8 +188,10 @@ export function getGenderBySlug(slug: string): GenderItem | null {
   );
 }
 
-export function getCategoriesByGender(genderId: number): CategoryItem[] {
-  return queryAll<CategoryItem>(
+export async function getCategoriesByGender(
+  genderId: number
+): Promise<CategoryItem[]> {
+  const rows = await queryAll<CategoryItem>(
     `SELECT c.id, c.gender_id, c.parent_id, c.slug, c.name, c.description, c.image_url, c.sort_order, c.is_visible,
             (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.status = 'active') as product_count
      FROM categories c
@@ -197,9 +199,12 @@ export function getCategoriesByGender(genderId: number): CategoryItem[] {
      ORDER BY c.sort_order ASC, c.id ASC`,
     genderId
   );
+  return rows.map((r) => ({ ...r, product_count: Number(r.product_count || 0) }));
 }
 
-export function getHomepageSections(genderSlug: string): HomepageSectionItem[] {
+export async function getHomepageSections(
+  genderSlug: string
+): Promise<HomepageSectionItem[]> {
   return queryAll<HomepageSectionItem>(
     `SELECT * FROM homepage_sections
      WHERE gender_slug = ? AND is_visible = 1
@@ -208,65 +213,69 @@ export function getHomepageSections(genderSlug: string): HomepageSectionItem[] {
   );
 }
 
-function hydrateProducts(rawRows: Record<string, unknown>[]): StoreProductCard[] {
+async function hydrateProducts(
+  rawRows: Record<string, unknown>[]
+): Promise<StoreProductCard[]> {
   if (rawRows.length === 0) return [];
   const ids = rawRows.map((r) => Number(r.id));
   const placeholders = ids.map(() => "?").join(",");
 
-  const imagesRows = queryAll<{
-    id: number;
-    product_id: number;
-    url: string;
-    alt_text: string;
-    sort_order: number;
-    is_primary: number;
-  }>(
-    `SELECT id, product_id, url, alt_text, sort_order, is_primary
-     FROM product_images
-     WHERE product_id IN (${placeholders})
-     ORDER BY is_primary DESC, sort_order ASC, id ASC`,
-    ...ids
-  );
-
-  const attrRows = queryAll<{
-    product_id: number;
-    attr_slug: string;
-    val_slug: string;
-    val_label: string;
-    color_hex: string;
-  }>(
-    `SELECT pav.product_id, a.slug as attr_slug, av.slug as val_slug, av.value as val_label, av.color_hex
-     FROM product_attribute_values pav
-     JOIN attributes a ON a.id = pav.attribute_id
-     JOIN attribute_values av ON av.id = pav.attribute_value_id
-     WHERE pav.product_id IN (${placeholders})
-     ORDER BY av.sort_order ASC`,
-    ...ids
-  );
+  const [imagesRows, attrRows, activePromos] = await Promise.all([
+    queryAll<{
+      id: number;
+      product_id: number;
+      url: string;
+      alt_text: string;
+      sort_order: number;
+      is_primary: number;
+    }>(
+      `SELECT id, product_id, url, alt_text, sort_order, is_primary
+       FROM product_images
+       WHERE product_id IN (${placeholders})
+       ORDER BY is_primary DESC, sort_order ASC, id ASC`,
+      ...ids
+    ),
+    queryAll<{
+      product_id: number;
+      attr_slug: string;
+      val_slug: string;
+      val_label: string;
+      color_hex: string;
+    }>(
+      `SELECT pav.product_id, a.slug as attr_slug, av.slug as val_slug, av.value as val_label, av.color_hex
+       FROM product_attribute_values pav
+       JOIN attributes a ON a.id = pav.attribute_id
+       JOIN attribute_values av ON av.id = pav.attribute_value_id
+       WHERE pav.product_id IN (${placeholders})
+       ORDER BY av.sort_order ASC`,
+      ...ids
+    ),
+    getActivePromotions(),
+  ]);
 
   const imagesByProd = new Map<
     number,
     { id: number; url: string; alt_text: string; sort_order: number }[]
   >();
   for (const img of imagesRows) {
-    const list = imagesByProd.get(img.product_id) ?? [];
+    const pid = Number(img.product_id);
+    const list = imagesByProd.get(pid) ?? [];
     list.push({
-      id: img.id,
+      id: Number(img.id),
       url: img.url,
       alt_text: img.alt_text,
-      sort_order: img.sort_order,
+      sort_order: Number(img.sort_order),
     });
-    imagesByProd.set(img.product_id, list);
+    imagesByProd.set(pid, list);
   }
 
   const attrsByProd = new Map<number, typeof attrRows>();
   for (const a of attrRows) {
-    const list = attrsByProd.get(a.product_id) ?? [];
+    const pid = Number(a.product_id);
+    const list = attrsByProd.get(pid) ?? [];
     list.push(a);
-    attrsByProd.set(a.product_id, list);
+    attrsByProd.set(pid, list);
   }
-
-  const activePromos = getActivePromotions();
 
   return rawRows.map((r) => {
     const id = Number(r.id);
@@ -352,12 +361,12 @@ export interface ProductQueryOptions {
   limit?: number;
 }
 
-export function queryStoreProducts(opts: ProductQueryOptions): {
+export async function queryStoreProducts(opts: ProductQueryOptions): Promise<{
   products: StoreProductCard[];
   total: number;
   page: number;
   totalPages: number;
-} {
+}> {
   const where: string[] = [
     "p.gender_id = ?",
     "p.status = 'active'",
@@ -414,7 +423,7 @@ export function queryStoreProducts(opts: ProductQueryOptions): {
     }
   }
 
-  const rawRows = queryAll<Record<string, unknown>>(
+  const rawRows = await queryAll<Record<string, unknown>>(
     `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
      FROM products p
      JOIN genders g ON g.id = p.gender_id
@@ -423,7 +432,7 @@ export function queryStoreProducts(opts: ProductQueryOptions): {
     ...params
   );
 
-  let hydrated = hydrateProducts(rawRows);
+  let hydrated = await hydrateProducts(rawRows);
 
   // Price filter applied accurately on effective price (including active promotions)
   if (typeof opts.minPrice === "number" && !Number.isNaN(opts.minPrice)) {
@@ -460,16 +469,16 @@ export function queryStoreProducts(opts: ProductQueryOptions): {
   };
 }
 
-export function getDynamicFiltersForGender(
+export async function getDynamicFiltersForGender(
   genderId: number,
   categorySlug?: string
-): {
+): Promise<{
   categories: CategoryItem[];
   attributes: DynamicFilterGroup[];
   collections: { slug: string; label: string; count: number }[];
   availability: { inStock: number; outOfStock: number };
-} {
-  const categories = getCategoriesByGender(genderId).filter(
+}> {
+  const categories = (await getCategoriesByGender(genderId)).filter(
     (c) => c.product_count > 0
   );
 
@@ -481,7 +490,7 @@ export function getDynamicFiltersForGender(
     : "p.gender_id = ? AND p.status = 'active' AND (p.category_id IS NULL OR c.is_visible = 1)";
   const scopeParams = categorySlug ? [categorySlug, genderId] : [genderId];
 
-  const attrRows = queryAll<{
+  const attrRows = await queryAll<{
     attr_id: number;
     attr_slug: string;
     attr_name: string;
@@ -501,35 +510,36 @@ export function getDynamicFiltersForGender(
      JOIN products p ON p.id = pav.product_id
      ${scopeJoin}
      WHERE a.is_visible = 1 AND a.is_filterable = 1 AND ${scopeWhere}
-     GROUP BY av.id
-     HAVING cnt > 0
+     GROUP BY a.id, a.slug, a.name, a.type, a.sort_order, av.id, av.slug, av.value, av.color_hex, av.sort_order
+     HAVING COUNT(DISTINCT p.id) > 0
      ORDER BY a.sort_order ASC, av.sort_order ASC`,
     ...scopeParams
   );
 
   const grouped = new Map<number, DynamicFilterGroup>();
   for (const row of attrRows) {
-    let g = grouped.get(row.attr_id);
+    const attrId = Number(row.attr_id);
+    let g = grouped.get(attrId);
     if (!g) {
       g = {
-        id: row.attr_id,
+        id: attrId,
         slug: row.attr_slug,
         name: row.attr_name,
         type: row.attr_type,
         options: [],
       };
-      grouped.set(row.attr_id, g);
+      grouped.set(attrId, g);
     }
     g.options.push({
-      id: row.val_id,
+      id: Number(row.val_id),
       slug: row.val_slug,
       value: row.val_label,
       color_hex: row.color_hex,
-      count: row.cnt,
+      count: Number(row.cnt || 0),
     });
   }
 
-  const colStats = queryOne<{
+  const colStats = await queryOne<{
     new_cnt: number;
     best_cnt: number;
     lim_cnt: number;
@@ -577,10 +587,10 @@ export function getDynamicFiltersForGender(
   };
 }
 
-export function getProductDetailBySlug(
+export async function getProductDetailBySlug(
   genderSlug: string,
   productSlug: string
-): {
+): Promise<{
   product: StoreProductCard & {
     details: string;
     materials_info: string;
@@ -589,8 +599,8 @@ export function getProductDetailBySlug(
   };
   similar: StoreProductCard[];
   alsoLike: StoreProductCard[];
-} | null {
-  const row = queryOne<Record<string, unknown>>(
+} | null> {
+  const row = await queryOne<Record<string, unknown>>(
     `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
      FROM products p
      JOIN genders g ON g.id = p.gender_id
@@ -602,22 +612,48 @@ export function getProductDetailBySlug(
   );
   if (!row) return null;
 
-  const [hydrated] = hydrateProducts([row]);
+  const [hydrated] = await hydrateProducts([row]);
   const prodId = hydrated.id;
 
-  const fullAttrs = queryAll<{
-    attr_name: string;
-    attr_slug: string;
-    val_label: string;
-  }>(
-    `SELECT a.name as attr_name, a.slug as attr_slug, av.value as val_label
-     FROM product_attribute_values pav
-     JOIN attributes a ON a.id = pav.attribute_id
-     JOIN attribute_values av ON av.id = pav.attribute_value_id
-     WHERE pav.product_id = ?
-     ORDER BY a.sort_order ASC, av.sort_order ASC`,
-    prodId
-  );
+  const [fullAttrs, similarRows, alsoLikeRows] = await Promise.all([
+    queryAll<{
+      attr_name: string;
+      attr_slug: string;
+      val_label: string;
+    }>(
+      `SELECT a.name as attr_name, a.slug as attr_slug, av.value as val_label
+       FROM product_attribute_values pav
+       JOIN attributes a ON a.id = pav.attribute_id
+       JOIN attribute_values av ON av.id = pav.attribute_value_id
+       WHERE pav.product_id = ?
+       ORDER BY a.sort_order ASC, av.sort_order ASC`,
+      prodId
+    ),
+    queryAll<Record<string, unknown>>(
+      `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
+       FROM products p
+       JOIN genders g ON g.id = p.gender_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE p.gender_id = ? AND p.category_id = ? AND p.id != ? AND p.status = 'active'
+       ORDER BY p.is_featured DESC, p.sales_count DESC
+       LIMIT 4`,
+      hydrated.gender_id,
+      hydrated.category_id ?? -1,
+      prodId
+    ),
+    queryAll<Record<string, unknown>>(
+      `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
+       FROM products p
+       JOIN genders g ON g.id = p.gender_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE p.gender_id = ? AND p.id != ? AND (p.category_id IS NULL OR p.category_id != ?) AND p.status = 'active'
+       ORDER BY p.is_bestseller DESC, p.rating DESC
+       LIMIT 4`,
+      hydrated.gender_id,
+      prodId,
+      hydrated.category_id ?? -1
+    ),
+  ]);
 
   const attrGrouped = new Map<
     string,
@@ -633,31 +669,10 @@ export function getProductDetailBySlug(
     attrGrouped.set(a.attr_slug, entry);
   }
 
-  const similarRows = queryAll<Record<string, unknown>>(
-    `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
-     FROM products p
-     JOIN genders g ON g.id = p.gender_id
-     LEFT JOIN categories c ON c.id = p.category_id
-     WHERE p.gender_id = ? AND p.category_id = ? AND p.id != ? AND p.status = 'active'
-     ORDER BY p.is_featured DESC, p.sales_count DESC
-     LIMIT 4`,
-    hydrated.gender_id,
-    hydrated.category_id ?? -1,
-    prodId
-  );
-
-  const alsoLikeRows = queryAll<Record<string, unknown>>(
-    `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
-     FROM products p
-     JOIN genders g ON g.id = p.gender_id
-     LEFT JOIN categories c ON c.id = p.category_id
-     WHERE p.gender_id = ? AND p.id != ? AND (p.category_id IS NULL OR p.category_id != ?) AND p.status = 'active'
-     ORDER BY p.is_bestseller DESC, p.rating DESC
-     LIMIT 4`,
-    hydrated.gender_id,
-    prodId,
-    hydrated.category_id ?? -1
-  );
+  const [similar, alsoLike] = await Promise.all([
+    hydrateProducts(similarRows),
+    hydrateProducts(alsoLikeRows),
+  ]);
 
   return {
     product: {
@@ -667,15 +682,15 @@ export function getProductDetailBySlug(
       tags: String(row.tags || ""),
       allAttributes: Array.from(attrGrouped.values()),
     },
-    similar: hydrateProducts(similarRows),
-    alsoLike: hydrateProducts(alsoLikeRows),
+    similar,
+    alsoLike,
   };
 }
 
-export function getProductsByIds(ids: number[]): StoreProductCard[] {
+export async function getProductsByIds(ids: number[]): Promise<StoreProductCard[]> {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(",");
-  const rows = queryAll<Record<string, unknown>>(
+  const rows = await queryAll<Record<string, unknown>>(
     `SELECT p.*, g.slug as gender_slug, c.name as category_name, c.slug as category_slug
      FROM products p
      JOIN genders g ON g.id = p.gender_id

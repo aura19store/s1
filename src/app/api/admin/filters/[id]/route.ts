@@ -28,7 +28,7 @@ export async function PUT(
 
   const { id } = await context.params;
   const attrId = Number(id);
-  const existing = queryOne<{ id: number }>(
+  const existing = await queryOne<{ id: number }>(
     `SELECT id FROM attributes WHERE id = ?`,
     attrId
   );
@@ -47,7 +47,7 @@ export async function PUT(
     }
 
     const d = parsed.data;
-    runTransaction((db) => {
+    await runTransaction(async (tx) => {
       const fields: string[] = [];
       const params: (string | number)[] = [];
       if (d.name !== undefined) {
@@ -63,7 +63,8 @@ export async function PUT(
         params.push(d.is_visible ? 1 : 0);
       }
       if (fields.length > 0) {
-        db.prepare(`UPDATE attributes SET ${fields.join(", ")} WHERE id = ?`).run(
+        await tx.execute(
+          `UPDATE attributes SET ${fields.join(", ")} WHERE id = ?`,
           ...params,
           attrId
         );
@@ -74,27 +75,38 @@ export async function PUT(
         for (let idx = 0; idx < d.values.length; idx++) {
           const item = d.values[idx];
           if (item.id) {
-            db.prepare(
-              `UPDATE attribute_values SET value = ?, color_hex = ?, sort_order = ? WHERE id = ? AND attribute_id = ?`
-            ).run(item.value, item.color_hex || "", idx + 1, item.id, attrId);
+            await tx.execute(
+              `UPDATE attribute_values SET value = ?, color_hex = ?, sort_order = ? WHERE id = ? AND attribute_id = ?`,
+              item.value,
+              item.color_hex || "",
+              idx + 1,
+              item.id,
+              attrId
+            );
             keepIds.push(item.id);
           } else {
             const valSlug = `${slugify(item.value)}-${Date.now().toString().slice(-3)}-${idx}`;
-            const ins = db
-              .prepare(
-                `INSERT INTO attribute_values (attribute_id, slug, value, color_hex, sort_order) VALUES (?, ?, ?, ?, ?)`
-              )
-              .run(attrId, valSlug, item.value, item.color_hex || "", idx + 1);
+            const ins = await tx.execute(
+              `INSERT INTO attribute_values (attribute_id, slug, value, color_hex, sort_order) VALUES (?, ?, ?, ?, ?)`,
+              attrId,
+              valSlug,
+              item.value,
+              item.color_hex || "",
+              idx + 1
+            );
             keepIds.push(Number(ins.lastInsertRowid));
           }
         }
         if (keepIds.length > 0) {
           const placeholders = keepIds.map(() => "?").join(",");
-          db.prepare(
-            `DELETE FROM attribute_values WHERE attribute_id = ? AND id NOT IN (${placeholders})`
-          ).run(attrId, ...keepIds);
+          await tx.execute(
+            `DELETE FROM attribute_values WHERE attribute_id = ? AND id NOT IN (${placeholders})`,
+            attrId,
+            ...keepIds
+          );
         } else {
-          db.prepare(`DELETE FROM attribute_values WHERE attribute_id = ?`).run(
+          await tx.execute(
+            `DELETE FROM attribute_values WHERE attribute_id = ?`,
             attrId
           );
         }
@@ -119,7 +131,7 @@ export async function DELETE(
   if ("error" in auth) return auth.error;
 
   const { id } = await context.params;
-  const res = execute(`DELETE FROM attributes WHERE id = ?`, Number(id));
+  const res = await execute(`DELETE FROM attributes WHERE id = ?`, Number(id));
   if (res.changes === 0) {
     return NextResponse.json({ error: "الفلتر غير موجود." }, { status: 404 });
   }

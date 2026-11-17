@@ -1,124 +1,119 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { DbClient } from "./index";
 import { hashPassword } from "../lib/password";
 import { ROLE_PERMISSIONS } from "../lib/constants";
 
-export function seedDatabase(db: DatabaseSync): void {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    // 1. Roles
-    const insertRole = db.prepare(
-      `INSERT OR IGNORE INTO roles (slug, name, description, permissions_json) VALUES (?, ?, ?, ?)`
-    );
-    insertRole.run(
-      "super_admin",
-      "المدير العام",
-      "صلاحيات كاملة لإدارة جميع أقسام المتجر والمستخدمين والإعدادات",
-      JSON.stringify(ROLE_PERMISSIONS.super_admin)
-    );
-    insertRole.run(
-      "manager",
-      "المدير",
-      "إدارة المنتجات والتصنيفات والفلاتر والعروض والمخزون والطلبات",
-      JSON.stringify(ROLE_PERMISSIONS.manager)
-    );
-    insertRole.run(
-      "content_manager",
-      "مدير المحتوى",
-      "إدارة الصفحة الرئيسية والتصنيفات ومكتبة الوسائط والبانرات",
-      JSON.stringify(ROLE_PERMISSIONS.content_manager)
-    );
-    insertRole.run(
-      "order_manager",
-      "مدير الطلبات",
-      "إدارة الطلبات ومتابعة حالات الشحن وبيانات العملاء",
-      JSON.stringify(ROLE_PERMISSIONS.order_manager)
-    );
+export async function seedDatabase(db: DbClient): Promise<void> {
+  // 1. Roles
+  const insertRoleSql = `INSERT OR IGNORE INTO roles (slug, name, description, permissions_json) VALUES (?, ?, ?, ?)`;
+  await db.execute(
+    insertRoleSql,
+    "super_admin",
+    "المدير العام",
+    "صلاحيات كاملة لإدارة جميع أقسام المتجر والمستخدمين والإعدادات",
+    JSON.stringify(ROLE_PERMISSIONS.super_admin)
+  );
+  await db.execute(
+    insertRoleSql,
+    "manager",
+    "المدير",
+    "إدارة المنتجات والتصنيفات والفلاتر والعروض والمخزون والطلبات",
+    JSON.stringify(ROLE_PERMISSIONS.manager)
+  );
+  await db.execute(
+    insertRoleSql,
+    "content_manager",
+    "مدير المحتوى",
+    "إدارة الصفحة الرئيسية والتصنيفات ومكتبة الوسائط والبانرات",
+    JSON.stringify(ROLE_PERMISSIONS.content_manager)
+  );
+  await db.execute(
+    insertRoleSql,
+    "order_manager",
+    "مدير الطلبات",
+    "إدارة الطلبات ومتابعة حالات الشحن وبيانات العملاء",
+    JSON.stringify(ROLE_PERMISSIONS.order_manager)
+  );
 
-    const roleMap = new Map<string, number>();
-    for (const r of db.prepare("SELECT id, slug FROM roles").all() as {
-      id: number;
-      slug: string;
-    }[]) {
-      roleMap.set(r.slug, r.id);
-    }
+  const roleMap = new Map<string, number>();
+  for (const r of await db.queryAll<{ id: number; slug: string }>(
+    "SELECT id, slug FROM roles"
+  )) {
+    roleMap.set(r.slug, Number(r.id));
+  }
 
-    // 2. Admin Users (seeded only when ADMIN_SEED_PASSWORD is set in the environment)
-    const adminSeedPassword = process.env.ADMIN_SEED_PASSWORD?.trim();
-    if (!adminSeedPassword) {
-      console.warn(
-        "[AURA seed] ADMIN_SEED_PASSWORD is not set; skipping admin user seeding. Set ADMIN_SEED_PASSWORD in your environment before seeding admin accounts."
-      );
-    } else {
-      const insertUser = db.prepare(
-        `INSERT OR IGNORE INTO users (name, email, password_hash, role_id, is_active) VALUES (?, ?, ?, ?, 1)`
-      );
-      const adminPwHash = hashPassword(adminSeedPassword);
-      insertUser.run(
-        "زيد العامري",
-        "admin@aura.iq",
-        adminPwHash,
-        roleMap.get("super_admin")!
-      );
-      insertUser.run(
-        "نور السامرائي",
-        "manager@aura.iq",
-        adminPwHash,
-        roleMap.get("manager")!
-      );
-      insertUser.run(
-        "سارة العبيدي",
-        "content@aura.iq",
-        adminPwHash,
-        roleMap.get("content_manager")!
-      );
-      insertUser.run(
-        "مصطفى الكاظمي",
-        "orders@aura.iq",
-        adminPwHash,
-        roleMap.get("order_manager")!
-      );
-    }
+  // 2. Admin Users (seeded only when ADMIN_SEED_PASSWORD is set in the environment)
+  const adminSeedPassword = process.env.ADMIN_SEED_PASSWORD?.trim();
+  if (!adminSeedPassword) {
+    console.warn(
+      "[AURA seed] ADMIN_SEED_PASSWORD is not set; skipping admin user seeding. Set ADMIN_SEED_PASSWORD in your environment before seeding admin accounts."
+    );
+  } else {
+    const insertUserSql = `INSERT OR IGNORE INTO users (name, email, password_hash, role_id, is_active) VALUES (?, ?, ?, ?, 1)`;
+    const adminPwHash = hashPassword(adminSeedPassword);
+    await db.execute(
+      insertUserSql,
+      "زيد العامري",
+      "admin@aura.iq",
+      adminPwHash,
+      roleMap.get("super_admin")!
+    );
+    await db.execute(
+      insertUserSql,
+      "نور السامرائي",
+      "manager@aura.iq",
+      adminPwHash,
+      roleMap.get("manager")!
+    );
+    await db.execute(
+      insertUserSql,
+      "سارة العبيدي",
+      "content@aura.iq",
+      adminPwHash,
+      roleMap.get("content_manager")!
+    );
+    await db.execute(
+      insertUserSql,
+      "مصطفى الكاظمي",
+      "orders@aura.iq",
+      adminPwHash,
+      roleMap.get("order_manager")!
+    );
+  }
 
-    // 3. Genders
-    const insertGender = db.prepare(
-      `INSERT OR IGNORE INTO genders (slug, name, shop_heading, entry_title, entry_subtitle, entry_image, sort_order, is_visible)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
-    );
-    insertGender.run(
-      "men",
-      "رجالي",
-      "تسوق الرجالي",
-      "رجالي",
-      "حضور واثق وتفاصيل مصقولة بعناية",
-      "/images/hero-men-editorial.jpg",
-      1
-    );
-    insertGender.run(
-      "women",
-      "نسائي",
-      "تسوق النسائي",
-      "نسائي",
-      "أناقة هادئة تبرز هالتك الخاصة",
-      "/images/hero-women-editorial.jpg",
-      2
-    );
+  // 3. Genders
+  const insertGenderSql = `INSERT OR IGNORE INTO genders (slug, name, shop_heading, entry_title, entry_subtitle, entry_image, sort_order, is_visible)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`;
+  await db.execute(
+    insertGenderSql,
+    "men",
+    "رجالي",
+    "تسوق الرجالي",
+    "رجالي",
+    "حضور واثق وتفاصيل مصقولة بعناية",
+    "/images/hero-men-editorial.jpg",
+    1
+  );
+  await db.execute(
+    insertGenderSql,
+    "women",
+    "نسائي",
+    "تسوق النسائي",
+    "نسائي",
+    "أناقة هادئة تبرز هالتك الخاصة",
+    "/images/hero-women-editorial.jpg",
+    2
+  );
 
-    const menId = (
-      db.prepare("SELECT id FROM genders WHERE slug = 'men'").get() as {
-        id: number;
-      }
-    ).id;
-    const womenId = (
-      db.prepare("SELECT id FROM genders WHERE slug = 'women'").get() as {
-        id: number;
-      }
-    ).id;
+  const menId = Number(
+    (await db.queryOne<{ id: number }>("SELECT id FROM genders WHERE slug = 'men'"))!.id
+  );
+  const womenId = Number(
+    (await db.queryOne<{ id: number }>("SELECT id FROM genders WHERE slug = 'women'"))!.id
+  );
 
-    // 4. Categories (6 Men + 6 Women)
-    const insertCat = db.prepare(
-      `INSERT OR IGNORE INTO categories (gender_id, slug, name, description, image_url, sort_order, is_visible)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`
-    );
+  // 4. Categories (6 Men + 6 Women)
+  const insertCatSql = `INSERT OR IGNORE INTO categories (gender_id, slug, name, description, image_url, sort_order, is_visible)
+     VALUES (?, ?, ?, ?, ?, ?, 1)`;
 
     const menCategories = [
       {
@@ -159,9 +154,10 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    menCategories.forEach((c, i) =>
-      insertCat.run(menId, c.slug, c.name, c.description, c.image, i + 1)
-    );
+    for (let i = 0; i < menCategories.length; i++) {
+      const c = menCategories[i];
+      await db.execute(insertCatSql, menId, c.slug, c.name, c.description, c.image, i + 1);
+    }
 
     const womenCategories = [
       {
@@ -202,40 +198,34 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    womenCategories.forEach((c, i) =>
-      insertCat.run(womenId, c.slug, c.name, c.description, c.image, i + 1)
-    );
+    for (let i = 0; i < womenCategories.length; i++) {
+      const c = womenCategories[i];
+      await db.execute(insertCatSql, womenId, c.slug, c.name, c.description, c.image, i + 1);
+    }
 
     const catMap = new Map<string, number>();
-    for (const c of db
-      .prepare(
-        `SELECT c.id, c.slug, g.slug as gslug FROM categories c JOIN genders g ON g.id = c.gender_id`
-      )
-      .all() as { id: number; slug: string; gslug: string }[]) {
-      catMap.set(`${c.gslug}:${c.slug}`, c.id);
+    for (const c of await db.queryAll<{ id: number; slug: string; gslug: string }>(
+      `SELECT c.id, c.slug, g.slug as gslug FROM categories c JOIN genders g ON g.id = c.gender_id`
+    )) {
+      catMap.set(`${c.gslug}:${c.slug}`, Number(c.id));
     }
 
     // 5. Dynamic Attributes & Values (Filters)
-    const insertAttr = db.prepare(
-      `INSERT OR IGNORE INTO attributes (slug, name, type, sort_order, is_visible, is_filterable)
-       VALUES (?, ?, ?, ?, 1, 1)`
-    );
-    insertAttr.run("color", "اللون", "color", 1);
-    insertAttr.run("material", "الخامة", "select", 2);
-    insertAttr.run("size", "المقاس", "size", 3);
+    const insertAttrSql = `INSERT OR IGNORE INTO attributes (slug, name, type, sort_order, is_visible, is_filterable)
+       VALUES (?, ?, ?, ?, 1, 1)`;
+    await db.execute(insertAttrSql, "color", "اللون", "color", 1);
+    await db.execute(insertAttrSql, "material", "الخامة", "select", 2);
+    await db.execute(insertAttrSql, "size", "المقاس", "size", 3);
 
     const attrMap = new Map<string, number>();
-    for (const a of db.prepare("SELECT id, slug FROM attributes").all() as {
-      id: number;
-      slug: string;
-    }[]) {
-      attrMap.set(a.slug, a.id);
+    for (const a of await db.queryAll<{ id: number; slug: string }>(
+      "SELECT id, slug FROM attributes"
+    )) {
+      attrMap.set(a.slug, Number(a.id));
     }
 
-    const insertVal = db.prepare(
-      `INSERT OR IGNORE INTO attribute_values (attribute_id, slug, value, color_hex, sort_order)
-       VALUES (?, ?, ?, ?, ?)`
-    );
+    const insertValSql = `INSERT OR IGNORE INTO attribute_values (attribute_id, slug, value, color_hex, sort_order)
+       VALUES (?, ?, ?, ?, ?)`;
 
     const colorValues = [
       { slug: "black", value: "أسود", hex: "#111111" },
@@ -245,9 +235,10 @@ export function seedDatabase(db: DatabaseSync): void {
       { slug: "sand-beige", value: "بيج رملي", hex: "#D8C8B5" },
       { slug: "espresso", value: "بني داكن", hex: "#4E3829" },
     ];
-    colorValues.forEach((v, idx) =>
-      insertVal.run(attrMap.get("color")!, v.slug, v.value, v.hex, idx + 1)
-    );
+    for (let idx = 0; idx < colorValues.length; idx++) {
+      const v = colorValues[idx];
+      await db.execute(insertValSql, attrMap.get("color")!, v.slug, v.value, v.hex, idx + 1);
+    }
 
     const materialValues = [
       { slug: "stainless-steel", value: "ستانلس ستيل" },
@@ -256,9 +247,10 @@ export function seedDatabase(db: DatabaseSync): void {
       { slug: "gold", value: "ذهب" },
       { slug: "acetate", value: "أسيتات فاخر" },
     ];
-    materialValues.forEach((v, idx) =>
-      insertVal.run(attrMap.get("material")!, v.slug, v.value, "", idx + 1)
-    );
+    for (let idx = 0; idx < materialValues.length; idx++) {
+      const v = materialValues[idx];
+      await db.execute(insertValSql, attrMap.get("material")!, v.slug, v.value, "", idx + 1);
+    }
 
     const sizeValues = [
       { slug: "one-size", value: "مقاس موحد" },
@@ -266,32 +258,36 @@ export function seedDatabase(db: DatabaseSync): void {
       { slug: "medium", value: "متوسط" },
       { slug: "large", value: "كبير" },
     ];
-    sizeValues.forEach((v, idx) =>
-      insertVal.run(attrMap.get("size")!, v.slug, v.value, "", idx + 1)
-    );
+    for (let idx = 0; idx < sizeValues.length; idx++) {
+      const v = sizeValues[idx];
+      await db.execute(insertValSql, attrMap.get("size")!, v.slug, v.value, "", idx + 1);
+    }
 
     const valMap = new Map<string, { id: number; attrId: number }>();
-    for (const v of db
-      .prepare(
-        `SELECT av.id, av.slug, a.slug as aslug, a.id as attr_id
-         FROM attribute_values av JOIN attributes a ON a.id = av.attribute_id`
-      )
-      .all() as { id: number; slug: string; aslug: string; attr_id: number }[]) {
-      valMap.set(`${v.aslug}:${v.slug}`, { id: v.id, attrId: v.attr_id });
+    for (const v of await db.queryAll<{
+      id: number;
+      slug: string;
+      aslug: string;
+      attr_id: number;
+    }>(
+      `SELECT av.id, av.slug, a.slug as aslug, a.id as attr_id
+       FROM attribute_values av JOIN attributes a ON a.id = av.attribute_id`
+    )) {
+      valMap.set(`${v.aslug}:${v.slug}`, { id: Number(v.id), attrId: Number(v.attr_id) });
     }
 
     // 6. Collections
-    const insertCollection = db.prepare(
-      `INSERT OR IGNORE INTO collections (slug, name, description, sort_order, is_visible) VALUES (?, ?, ?, ?, 1)`
-    );
-    insertCollection.run("new-arrivals", "وصل حديثًا", "أحدث القطع من AURA", 1);
-    insertCollection.run(
+    const insertCollectionSql = `INSERT OR IGNORE INTO collections (slug, name, description, sort_order, is_visible) VALUES (?, ?, ?, ?, 1)`;
+    await db.execute(insertCollectionSql, "new-arrivals", "وصل حديثًا", "أحدث القطع من AURA", 1);
+    await db.execute(
+      insertCollectionSql,
       "bestsellers",
       "الأكثر طلباً",
       "القطع الأكثر طلباً من عملائنا",
       2
     );
-    insertCollection.run(
+    await db.execute(
+      insertCollectionSql,
       "limited-edition",
       "إصدار محدود",
       "إصدارات حصرية بكميات محدودة",
@@ -913,7 +909,7 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    const insertProduct = db.prepare(`
+    const insertProductSql = `
       INSERT OR IGNORE INTO products (
         sku, slug, name, description, details, materials_info,
         gender_id, category_id, price_iqd, discount_price_iqd,
@@ -921,22 +917,23 @@ export function seedDatabase(db: DatabaseSync): void {
         is_featured, is_bestseller, is_new_arrival, is_limited_edition,
         rating, review_count, sales_count, tags
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 5, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const insertImage = db.prepare(`
+    `;
+    const insertImageSql = `
       INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary)
       VALUES (?, ?, ?, ?, ?)
-    `);
-    const insertPav = db.prepare(`
+    `;
+    const insertPavSql = `
       INSERT OR IGNORE INTO product_attribute_values (product_id, attribute_id, attribute_value_id)
       VALUES (?, ?, ?)
-    `);
+    `;
 
     const productIdBySku = new Map<string, number>();
 
     for (const p of seedProducts) {
       const gId = p.gender === "men" ? menId : womenId;
       const cId = catMap.get(`${p.gender}:${p.category}`) ?? null;
-      const res = insertProduct.run(
+      const res = await db.execute(
+        insertProductSql,
         p.sku,
         p.slug,
         p.name,
@@ -961,26 +958,28 @@ export function seedDatabase(db: DatabaseSync): void {
       const prodId = Number(res.lastInsertRowid);
       if (prodId > 0) {
         productIdBySku.set(p.sku, prodId);
-        p.images.forEach((url, idx) => {
-          insertImage.run(prodId, url, p.name, idx, idx === 0 ? 1 : 0);
-        });
+        for (let idx = 0; idx < p.images.length; idx++) {
+          const url = p.images[idx];
+          await db.execute(insertImageSql, prodId, url, p.name, idx, idx === 0 ? 1 : 0);
+        }
         for (const aKey of p.attrs) {
           const found = valMap.get(aKey);
           if (found) {
-            insertPav.run(prodId, found.attrId, found.id);
+            await db.execute(insertPavSql, prodId, found.attrId, found.id);
           }
         }
       }
     }
 
     // 8. Promotions
-    const insertPromo = db.prepare(`
+    const insertPromoSql = `
       INSERT OR IGNORE INTO promotions (
         name, description, discount_type, discount_value, scope_type,
         gender_id, category_id, product_ids_json, starts_at, ends_at, is_active
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertPromo.run(
+    `;
+    await db.execute(
+      insertPromoSql,
       "عرض التشكيلة الموسمية",
       "خصم 10٪ إضافي على تشكيلة الحقائب النسائية الفاخرة",
       "percentage",
@@ -993,7 +992,8 @@ export function seedDatabase(db: DatabaseSync): void {
       "2027-12-31",
       1
     );
-    insertPromo.run(
+    await db.execute(
+      insertPromoSql,
       "تخفيض خاص على الساعات الرجالية",
       "خصم ثابت 10,000 د.ع على الساعات الرجالية المختارة",
       "fixed",
@@ -1008,14 +1008,14 @@ export function seedDatabase(db: DatabaseSync): void {
     );
 
     // 9. Homepage Sections (Men & Women — Dynamic Order, Editable, NO Newsletter)
-    const insertSection = db.prepare(`
+    const insertSectionSql = `
       INSERT OR IGNORE INTO homepage_sections (
         section_key, gender_slug, type, title, subtitle, description,
         cta_text, cta_link, image_url,
         secondary_title, secondary_subtitle, secondary_cta_text, secondary_cta_link, secondary_image_url,
         sort_order, is_visible
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `);
+    `;
 
     const menSections = [
       {
@@ -1096,8 +1096,10 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    menSections.forEach((s, idx) =>
-      insertSection.run(
+    for (let idx = 0; idx < menSections.length; idx++) {
+      const s = menSections[idx];
+      await db.execute(
+        insertSectionSql,
         s.key,
         "men",
         s.type,
@@ -1113,8 +1115,8 @@ export function seedDatabase(db: DatabaseSync): void {
         s.secCtaLink ?? "",
         s.secImage ?? "",
         idx + 1
-      )
-    );
+      );
+    }
 
     const womenSections = [
       {
@@ -1195,8 +1197,10 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    womenSections.forEach((s, idx) =>
-      insertSection.run(
+    for (let idx = 0; idx < womenSections.length; idx++) {
+      const s = womenSections[idx];
+      await db.execute(
+        insertSectionSql,
         s.key,
         "women",
         s.type,
@@ -1212,14 +1216,14 @@ export function seedDatabase(db: DatabaseSync): void {
         s.secCtaLink ?? "",
         s.secImage ?? "",
         idx + 1
-      )
-    );
+      );
+    }
 
     // 10. Media Library
-    const insertMedia = db.prepare(`
+    const insertMediaSql = `
       INSERT OR IGNORE INTO media (filename, url, category, alt_text, mime_type, size_bytes)
       VALUES (?, ?, ?, ?, 'image/jpeg', 150000)
-    `);
+    `;
     const mediaList: [string, string, string, string][] = [
       ["hero-men-editorial.jpg", "/images/hero-men-editorial.jpg", "banners", "واجهة دخول القسم الرجالي"],
       ["hero-women-editorial.jpg", "/images/hero-women-editorial.jpg", "banners", "واجهة دخول القسم النسائي"],
@@ -1244,27 +1248,27 @@ export function seedDatabase(db: DatabaseSync): void {
       ["prod-women-bag-editorial.jpg", "/images/prod-women-bag-editorial.jpg", "products", "حقيبة كتف بيج أنيقة"],
     ];
     for (const [fn, url, cat, alt] of mediaList) {
-      insertMedia.run(fn, url, cat, alt);
+      await db.execute(insertMediaSql, fn, url, cat, alt);
     }
 
     // 11. Sample Customers & Realistic Iraqi Orders (in IQD)
-    const insertCustomer = db.prepare(`
+    const insertCustomerSql = `
       INSERT OR IGNORE INTO customers (name, phone, email, governorate, city, address, orders_count, total_spent_iqd, last_order_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const insertOrder = db.prepare(`
+    `;
+    const insertOrderSql = `
       INSERT OR IGNORE INTO orders (
         order_number, customer_id, customer_name, customer_phone, customer_email,
         governorate, city, address, notes, payment_method, payment_status,
         currency_code, subtotal_iqd, discount_iqd, shipping_iqd, total_iqd, status, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IQD', ?, ?, ?, ?, ?, ?)
-    `);
-    const insertOrderItem = db.prepare(`
+    `;
+    const insertOrderItemSql = `
       INSERT INTO order_items (
         order_id, product_id, product_name, product_sku, product_image,
         variant_label, quantity, unit_price_iqd, total_price_iqd
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    `;
 
     const sampleOrders = [
       {
@@ -1458,7 +1462,8 @@ export function seedDatabase(db: DatabaseSync): void {
     ];
 
     for (const o of sampleOrders) {
-      insertCustomer.run(
+      await db.execute(
+        insertCustomerSql,
         o.name,
         o.phone,
         o.email,
@@ -1469,12 +1474,14 @@ export function seedDatabase(db: DatabaseSync): void {
         o.total,
         o.date
       );
-      const cust = db
-        .prepare("SELECT id FROM customers WHERE phone = ?")
-        .get(o.phone) as { id: number };
-      const orderRes = insertOrder.run(
+      const cust = (await db.queryOne<{ id: number }>(
+        "SELECT id FROM customers WHERE phone = ?",
+        o.phone
+      ))!;
+      const orderRes = await db.execute(
+        insertOrderSql,
         o.num,
-        cust.id,
+        Number(cust.id),
         o.name,
         o.phone,
         o.email,
@@ -1494,7 +1501,8 @@ export function seedDatabase(db: DatabaseSync): void {
       const orderId = Number(orderRes.lastInsertRowid);
       if (orderId > 0) {
         for (const it of o.items) {
-          insertOrderItem.run(
+          await db.execute(
+            insertOrderItemSql,
             orderId,
             productIdBySku.get(it.sku) ?? null,
             it.name,
@@ -1548,7 +1556,7 @@ export function seedDatabase(db: DatabaseSync): void {
       },
     ];
 
-    db.prepare(
+    await db.execute(
       `INSERT OR IGNORE INTO store_settings (
         id, store_name, tagline, secondary_tagline, logo_url,
         currency_code, currency_symbol, country_code,
@@ -1556,8 +1564,7 @@ export function seedDatabase(db: DatabaseSync): void {
         payment_methods_json, contact_phone, contact_email, contact_address,
         instagram_url, tiktok_url,
         shipping_policy, return_policy, privacy_policy, faq_json, store_info
-      ) VALUES (1, ?, ?, ?, ?, 'IQD', 'د.ع', 'IQ', 25000, 3000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+      ) VALUES (1, ?, ?, ?, ?, 'IQD', 'د.ع', 'IQ', 25000, 3000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       "AURA",
       "أسلوبك، هالتك.",
       "إكسسوارات تصنع حضورك.",
@@ -1574,10 +1581,4 @@ export function seedDatabase(db: DatabaseSync): void {
       JSON.stringify(faqs),
       "AURA علامة عراقية معاصرة متخصصة بالإكسسوارات الفاخرة للرجال والنساء، تؤمن بأن الأناقة الحقيقية تكمن في التفاصيل الهادئة التي تصنع حضورك وتميز أسلوبك."
     );
-
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
 }

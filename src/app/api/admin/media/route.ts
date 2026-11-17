@@ -3,6 +3,11 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { execute, queryAll, queryOne } from "@/db";
 import { requireAdminApi } from "@/lib/auth";
+import {
+  deleteMediaFromSupabaseStorage,
+  isSupabaseStorageConfigured,
+  uploadMediaToSupabaseStorage,
+} from "@/lib/supabase";
 
 const ALLOWED_TYPES = new Set([
   "image/jpeg",
@@ -20,12 +25,15 @@ export async function GET(request: NextRequest) {
   const where = category && category !== "all" ? "WHERE category = ?" : "";
   const params = category && category !== "all" ? [category] : [];
 
-  const items = queryAll(
+  const items = await queryAll(
     `SELECT * FROM media ${where} ORDER BY id DESC`,
     ...params
   );
 
-  return NextResponse.json({ items });
+  return NextResponse.json({
+    items,
+    storageProvider: isSupabaseStorageConfigured() ? "supabase" : "local",
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -35,7 +43,10 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
-    const category = String(formData.get("category") || "products");
+    const category = String(formData.get("category") || "products").replace(
+      /[^a-zA-Z0-9_-]/g,
+      ""
+    ) || "products";
     const altText = String(formData.get("alt_text") || "");
 
     if (!(file instanceof File)) {
@@ -69,16 +80,30 @@ export async function POST(request: NextRequest) {
       .toString(36)
       .slice(2, 7)}${ext}`;
 
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    const buffer = Buffer.from(await file.arrayBuffer());
+    let url: string;
+    let storageProvider: "supabase" | "local";
+
+    if (isSupabaseStorageConfigured()) {
+      const objectPath = `${category}/${safeName}`;
+      const uploaded = await uploadMediaToSupabaseStorage(
+        buffer,
+        objectPath,
+        file.type
+      );
+      url = uploaded.publicUrl;
+      storageProvider = "supabase";
+    } else {
+      const uploadDir = path.join(process.cwd(), "public", "uploads");
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadDir, safeName), buffer);
+      url = `/uploads/${safeName}`;
+      storageProvider = "local";
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(path.join(uploadDir, safeName), buffer);
-
-    const url = `/uploads/${safeName}`;
-    const res = execute(
+    const res = await execute(
       `INSERT INTO media (filename, url, category, alt_text, mime_type, size_bytes)
        VALUES (?, ?, ?, ?, ?, ?)`,
       safeName,
@@ -95,6 +120,7 @@ export async function POST(request: NextRequest) {
         url,
         filename: safeName,
         category,
+        storageProvider,
         message: "تم رفع الصورة بنجاح.",
       },
       { status: 201 }
@@ -113,7 +139,7 @@ export async function DELETE(request: NextRequest) {
   if ("error" in auth) return auth.error;
 
   const id = Number(request.nextUrl.searchParams.get("id"));
-  const item = queryOne<{ id: number; url: string }>(
+  const item = await queryOne<{ id: number; url: string }>(
     `SELECT id, url FROM media WHERE id = ?`,
     id
   );
@@ -121,10 +147,12 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "الصورة غير موجودة." }, { status: 404 });
   }
 
-  execute(`DELETE FROM media WHERE id = ?`, id);
+  await execute(`DELETE FROM media WHERE id = ?`, id);
 
-  // Only delete uploaded files from /uploads (keep core /images safe)
-  if (item.url.startsWith("/uploads/")) {
+  // Clean up file from Supabase Storage or local /uploads (keep core /images safe)
+  if (item.url.startsWith("http://") || item.url.startsWith("https://")) {
+    await deleteMediaFromSupabaseStorage(item.url);
+  } else if (item.url.startsWith("/uploads/")) {
     const filePath = path.join(process.cwd(), "public", item.url);
     if (fs.existsSync(filePath)) {
       try {

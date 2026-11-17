@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const settings = getStoreSettings();
+    const settings = await getStoreSettings();
     const enabledPaymentNames = settings.payment_methods
       .filter((m) => m.enabled)
       .map((m) => m.name);
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       ? parsed.data.paymentMethod
       : enabledPaymentNames[0] || "الدفع عند الاستلام";
 
-    const cart = queryOne<{ id: number }>(
+    const cart = await queryOne<{ id: number }>(
       `SELECT id FROM carts WHERE session_token = ?`,
       token
     );
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const cartRows = queryAll<{
+    const cartRows = await queryAll<{
       product_id: number;
       variant_label: string;
       quantity: number;
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const activePromos = getActivePromotions();
+    const activePromos = await getActivePromotions();
     let originalSubtotal = 0;
     let subtotalIqd = 0;
 
@@ -148,30 +148,30 @@ export async function POST(request: NextRequest) {
     );
     const totalIqd = subtotalIqd + shippingIqd;
 
-    const orderResult = runTransaction((db) => {
+    const orderResult = await runTransaction(async (tx) => {
       // Generate unique order number
-      const countRow = db
-        .prepare(`SELECT COUNT(*) as c FROM orders`)
-        .get() as { c: number };
-      const orderNumber = `AURA-2026-${1001 + Number(countRow.c) + Math.floor(Math.random() * 50)}`;
+      const countRow = await tx.queryOne<{ c: number }>(
+        `SELECT COUNT(*) as c FROM orders`
+      );
+      const orderNumber = `AURA-2026-${1001 + Number(countRow?.c ?? 0) + Math.floor(Math.random() * 50)}`;
 
       // Upsert Customer
-      const existingCustomer = db
-        .prepare(`SELECT id FROM customers WHERE phone = ?`)
-        .get(parsed.data.customerPhone) as { id: number } | undefined;
+      const existingCustomer = await tx.queryOne<{ id: number }>(
+        `SELECT id FROM customers WHERE phone = ?`,
+        parsed.data.customerPhone
+      );
 
       let customerId: number;
       if (existingCustomer) {
-        customerId = existingCustomer.id;
-        db.prepare(
+        customerId = Number(existingCustomer.id);
+        await tx.execute(
           `UPDATE customers
            SET name = ?, email = COALESCE(NULLIF(?, ''), email),
                governorate = ?, city = ?, address = ?,
                orders_count = orders_count + 1,
                total_spent_iqd = total_spent_iqd + ?,
                last_order_at = datetime('now')
-           WHERE id = ?`
-        ).run(
+           WHERE id = ?`,
           parsed.data.customerName,
           parsed.data.customerEmail || "",
           parsed.data.governorate,
@@ -181,66 +181,57 @@ export async function POST(request: NextRequest) {
           customerId
         );
       } else {
-        const custIns = db
-          .prepare(
-            `INSERT INTO customers (name, phone, email, governorate, city, address, orders_count, total_spent_iqd, last_order_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))`
-          )
-          .run(
-            parsed.data.customerName,
-            parsed.data.customerPhone,
-            parsed.data.customerEmail || "",
-            parsed.data.governorate,
-            parsed.data.city,
-            parsed.data.address,
-            totalIqd
-          );
-        customerId = Number(custIns.lastInsertRowid);
-      }
-
-      // Insert Order
-      const orderIns = db
-        .prepare(
-          `INSERT INTO orders (
-             order_number, customer_id, customer_name, customer_phone, customer_email,
-             governorate, city, address, notes, payment_method, payment_status,
-             currency_code, subtotal_iqd, discount_iqd, shipping_iqd, total_iqd, status
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'IQD', ?, ?, ?, ?, 'pending')`
-        )
-        .run(
-          orderNumber,
-          customerId,
+        const custIns = await tx.execute(
+          `INSERT INTO customers (name, phone, email, governorate, city, address, orders_count, total_spent_iqd, last_order_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))`,
           parsed.data.customerName,
           parsed.data.customerPhone,
           parsed.data.customerEmail || "",
           parsed.data.governorate,
           parsed.data.city,
           parsed.data.address,
-          parsed.data.notes || "",
-          chosenPayment,
-          subtotalIqd,
-          discountIqd,
-          shippingIqd,
           totalIqd
         );
+        customerId = Number(custIns.lastInsertRowid);
+      }
+
+      // Insert Order
+      const orderIns = await tx.execute(
+        `INSERT INTO orders (
+           order_number, customer_id, customer_name, customer_phone, customer_email,
+           governorate, city, address, notes, payment_method, payment_status,
+           currency_code, subtotal_iqd, discount_iqd, shipping_iqd, total_iqd, status
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'IQD', ?, ?, ?, ?, 'pending')`,
+        orderNumber,
+        customerId,
+        parsed.data.customerName,
+        parsed.data.customerPhone,
+        parsed.data.customerEmail || "",
+        parsed.data.governorate,
+        parsed.data.city,
+        parsed.data.address,
+        parsed.data.notes || "",
+        chosenPayment,
+        subtotalIqd,
+        discountIqd,
+        shippingIqd,
+        totalIqd
+      );
       const orderId = Number(orderIns.lastInsertRowid);
 
-      const insertItemStmt = db.prepare(
-        `INSERT INTO order_items (
+      const insertItemSql = `INSERT INTO order_items (
            order_id, product_id, product_name, product_sku, product_image,
            variant_label, quantity, unit_price_iqd, total_price_iqd
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      const updateStockStmt = db.prepare(
-        `UPDATE products
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      const updateStockSql = `UPDATE products
          SET stock_quantity = MAX(0, stock_quantity - ?),
              sales_count = sales_count + ?,
              updated_at = datetime('now')
-         WHERE id = ?`
-      );
+         WHERE id = ?`;
 
       for (const it of preparedItems) {
-        insertItemStmt.run(
+        await tx.execute(
+          insertItemSql,
           orderId,
           it.product_id,
           it.name,
@@ -251,11 +242,11 @@ export async function POST(request: NextRequest) {
           it.unitPrice,
           it.lineTotal
         );
-        updateStockStmt.run(it.quantity, it.quantity, it.product_id);
+        await tx.execute(updateStockSql, it.quantity, it.quantity, it.product_id);
       }
 
       // Clear cart
-      db.prepare(`DELETE FROM cart_items WHERE cart_id = ?`).run(cart.id);
+      await tx.execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
 
       return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd };
     });

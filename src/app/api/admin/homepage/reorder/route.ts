@@ -20,11 +20,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  runTransaction((db) => {
-    const stmt = db.prepare(
-      `UPDATE homepage_sections SET sort_order = ?, updated_at = datetime('now') WHERE id = ?`
-    );
-    parsed.data.orderedIds.forEach((id, idx) => stmt.run(idx + 1, id));
+  await runTransaction(async (tx) => {
+    for (let idx = 0; idx < parsed.data.orderedIds.length; idx++) {
+      await tx.execute(
+        `UPDATE homepage_sections SET sort_order = ?, updated_at = datetime('now') WHERE id = ?`,
+        idx + 1,
+        parsed.data.orderedIds[idx]
+      );
+    }
   });
 
   return NextResponse.json({ message: "تم حفظ ترتيب أقسام الصفحة الرئيسية بنجاح." });

@@ -24,8 +24,8 @@ export interface CartItemResponse {
   promotionName: string | null;
 }
 
-function buildCartResponse(sessionToken: string | null) {
-  const settings = getStoreSettings();
+async function buildCartResponse(sessionToken: string | null) {
+  const settings = await getStoreSettings();
   if (!sessionToken) {
     return {
       guestToken: null as string | null,
@@ -41,7 +41,7 @@ function buildCartResponse(sessionToken: string | null) {
     };
   }
 
-  const cart = queryOne<{ id: number }>(
+  const cart = await queryOne<{ id: number }>(
     `SELECT id FROM carts WHERE session_token = ?`,
     sessionToken
   );
@@ -60,37 +60,38 @@ function buildCartResponse(sessionToken: string | null) {
     };
   }
 
-  const rows = queryAll<{
-    ci_id: number;
-    product_id: number;
-    variant_label: string;
-    quantity: number;
-    slug: string;
-    gender_slug: string;
-    gender_name: string;
-    name: string;
-    sku: string;
-    gender_id: number;
-    category_id: number | null;
-    price_iqd: number;
-    discount_price_iqd: number | null;
-    stock_quantity: number;
-    status: string;
-    primary_image: string | null;
-  }>(
-    `SELECT ci.id as ci_id, ci.product_id, ci.variant_label, ci.quantity,
-            p.slug, g.slug as gender_slug, g.name as gender_name, p.name, p.sku, p.gender_id, p.category_id,
-            p.price_iqd, p.discount_price_iqd, p.stock_quantity, p.status,
-            (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
-     FROM cart_items ci
-     JOIN products p ON p.id = ci.product_id
-     JOIN genders g ON g.id = p.gender_id
-     WHERE ci.cart_id = ? AND p.status = 'active'
-     ORDER BY ci.id DESC`,
-    cart.id
-  );
-
-  const promos = getActivePromotions();
+  const [rows, promos] = await Promise.all([
+    queryAll<{
+      ci_id: number;
+      product_id: number;
+      variant_label: string;
+      quantity: number;
+      slug: string;
+      gender_slug: string;
+      gender_name: string;
+      name: string;
+      sku: string;
+      gender_id: number;
+      category_id: number | null;
+      price_iqd: number;
+      discount_price_iqd: number | null;
+      stock_quantity: number;
+      status: string;
+      primary_image: string | null;
+    }>(
+      `SELECT ci.id as ci_id, ci.product_id, ci.variant_label, ci.quantity,
+              p.slug, g.slug as gender_slug, g.name as gender_name, p.name, p.sku, p.gender_id, p.category_id,
+              p.price_iqd, p.discount_price_iqd, p.stock_quantity, p.status,
+              (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
+       FROM cart_items ci
+       JOIN products p ON p.id = ci.product_id
+       JOIN genders g ON g.id = p.gender_id
+       WHERE ci.cart_id = ? AND p.status = 'active'
+       ORDER BY ci.id DESC`,
+      cart.id
+    ),
+    getActivePromotions(),
+  ]);
   let originalSubtotal = 0;
   let subtotalIqd = 0;
   let itemCount = 0;
@@ -160,7 +161,7 @@ function buildCartResponse(sessionToken: string | null) {
 
 export async function GET() {
   const token = await getGuestSessionToken();
-  return NextResponse.json(buildCartResponse(token));
+  return NextResponse.json(await buildCartResponse(token));
 }
 
 const addSchema = z.object({
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { productId, quantity, variantLabel } = parsed.data;
-    const product = queryOne<{
+    const product = await queryOne<{
       id: number;
       status: string;
       stock_quantity: number;
@@ -201,19 +202,19 @@ export async function POST(request: NextRequest) {
     }
 
     const token = await ensureGuestSessionToken();
-    let cart = queryOne<{ id: number }>(
+    let cart = await queryOne<{ id: number }>(
       `SELECT id FROM carts WHERE session_token = ?`,
       token
     );
     if (!cart) {
-      const ins = execute(
+      const ins = await execute(
         `INSERT INTO carts (session_token) VALUES (?)`,
         token
       );
       cart = { id: ins.lastInsertRowid };
     }
 
-    const existing = queryOne<{ id: number; quantity: number }>(
+    const existing = await queryOne<{ id: number; quantity: number }>(
       `SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND variant_label = ?`,
       cart.id,
       productId,
@@ -225,14 +226,14 @@ export async function POST(request: NextRequest) {
         product.stock_quantity,
         existing.quantity + quantity
       );
-      execute(
+      await execute(
         `UPDATE cart_items SET quantity = ? WHERE id = ?`,
         nextQty,
         existing.id
       );
     } else {
       const safeQty = Math.min(product.stock_quantity, quantity);
-      execute(
+      await execute(
         `INSERT INTO cart_items (cart_id, product_id, variant_label, quantity) VALUES (?, ?, ?, ?)`,
         cart.id,
         productId,
@@ -243,7 +244,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: "تمت إضافة المنتج إلى السلة بنجاح.",
-      cart: buildCartResponse(token),
+      cart: await buildCartResponse(token),
     });
   } catch (err) {
     console.error("Cart POST error:", err);
@@ -271,7 +272,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "الكمية غير صالحة." }, { status: 400 });
     }
 
-    const cart = queryOne<{ id: number }>(
+    const cart = await queryOne<{ id: number }>(
       `SELECT id FROM carts WHERE session_token = ?`,
       token
     );
@@ -279,7 +280,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "السلة غير موجودة." }, { status: 404 });
     }
 
-    const item = queryOne<{ id: number; product_id: number }>(
+    const item = await queryOne<{ id: number; product_id: number }>(
       `SELECT id, product_id FROM cart_items WHERE id = ? AND cart_id = ?`,
       parsed.data.itemId,
       cart.id
@@ -292,15 +293,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (parsed.data.quantity === 0) {
-      execute(`DELETE FROM cart_items WHERE id = ?`, item.id);
+      await execute(`DELETE FROM cart_items WHERE id = ?`, item.id);
     } else {
-      const prod = queryOne<{ stock_quantity: number }>(
+      const prod = await queryOne<{ stock_quantity: number }>(
         `SELECT stock_quantity FROM products WHERE id = ?`,
         item.product_id
       );
       const maxStock = prod?.stock_quantity ?? 1;
       const safeQty = Math.min(maxStock, parsed.data.quantity);
-      execute(
+      await execute(
         `UPDATE cart_items SET quantity = ? WHERE id = ?`,
         safeQty,
         item.id
@@ -309,7 +310,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       message: "تم تحديث السلة.",
-      cart: buildCartResponse(token),
+      cart: await buildCartResponse(token),
     });
   } catch (err) {
     console.error("Cart PATCH error:", err);
@@ -324,30 +325,30 @@ export async function DELETE(request: NextRequest) {
   try {
     const token = await getGuestSessionToken();
     if (!token) {
-      return NextResponse.json({ cart: buildCartResponse(null) });
+      return NextResponse.json({ cart: await buildCartResponse(null) });
     }
-    const cart = queryOne<{ id: number }>(
+    const cart = await queryOne<{ id: number }>(
       `SELECT id FROM carts WHERE session_token = ?`,
       token
     );
     if (!cart) {
-      return NextResponse.json({ cart: buildCartResponse(token) });
+      return NextResponse.json({ cart: await buildCartResponse(token) });
     }
 
     const itemId = request.nextUrl.searchParams.get("itemId");
     if (itemId) {
-      execute(
+      await execute(
         `DELETE FROM cart_items WHERE id = ? AND cart_id = ?`,
         Number(itemId),
         cart.id
       );
     } else {
-      execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
+      await execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
     }
 
     return NextResponse.json({
       message: "تم الحذف من السلة.",
-      cart: buildCartResponse(token),
+      cart: await buildCartResponse(token),
     });
   } catch (err) {
     console.error("Cart DELETE error:", err);

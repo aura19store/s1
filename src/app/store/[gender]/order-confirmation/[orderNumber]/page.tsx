@@ -17,7 +17,7 @@ export default async function OrderConfirmationPage({
   const { gender, orderNumber } = await params;
   const decodedNum = decodeURIComponent(orderNumber);
 
-  const order = queryOne<{
+  const order = await queryOne<{
     id: number;
     order_number: string;
     customer_name: string;
@@ -36,7 +36,7 @@ export default async function OrderConfirmationPage({
 
   if (!order) notFound();
 
-  const items = queryAll<{
+  const items = await queryAll<{
     id: number;
     product_name: string;
     product_sku: string;

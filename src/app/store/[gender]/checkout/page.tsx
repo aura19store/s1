@@ -16,7 +16,7 @@ export default async function CheckoutPage({
   params: Promise<{ gender: string }>;
 }) {
   const { gender } = await params;
-  const settings = getStoreSettings();
+  const settings = await getStoreSettings();
   return (
     <CheckoutClient
       genderSlug={gender}

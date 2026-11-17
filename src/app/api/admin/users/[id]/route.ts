@@ -21,7 +21,7 @@ export async function PUT(
 
   const { id } = await context.params;
   const userId = Number(id);
-  const existing = queryOne<{ id: number }>(
+  const existing = await queryOne<{ id: number }>(
     `SELECT id FROM users WHERE id = ?`,
     userId
   );
@@ -72,7 +72,7 @@ export async function PUT(
 
   if (fields.length > 0) {
     fields.push("updated_at = datetime('now')");
-    execute(
+    await execute(
       `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
       ...params,
       userId
@@ -98,6 +98,6 @@ export async function DELETE(
     );
   }
 
-  execute(`DELETE FROM users WHERE id = ?`, userId);
+  await execute(`DELETE FROM users WHERE id = ?`, userId);
   return NextResponse.json({ message: "تم حذف المستخدم بنجاح." });
 }

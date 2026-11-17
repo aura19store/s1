@@ -31,9 +31,9 @@ export async function generateMetadata({
   params: Promise<{ gender: string; slug: string }>;
 }): Promise<Metadata> {
   const { gender: genderSlug, slug } = await params;
-  const gender = getGenderBySlug(genderSlug);
+  const gender = await getGenderBySlug(genderSlug);
   if (!gender) return { title: "التصنيف" };
-  const cat = getCategory(gender.id, slug);
+  const cat = await getCategory(gender.id, slug);
   if (!cat) return { title: "التصنيف غير موجود" };
   const genderLabel = gender.slug === "women" ? "النسائي" : "الرجالي";
   return {
@@ -53,10 +53,10 @@ export default async function CategoryPage({
 }) {
   const { gender: genderSlug, slug } = await params;
   const sp = await searchParams;
-  const gender = getGenderBySlug(genderSlug);
+  const gender = await getGenderBySlug(genderSlug);
   if (!gender) notFound();
 
-  const category = getCategory(gender.id, slug);
+  const category = await getCategory(gender.id, slug);
   if (!category) notFound();
 
   const getStr = (key: string) => {
@@ -64,17 +64,18 @@ export default async function CategoryPage({
     return Array.isArray(val) ? val[0] : val || "";
   };
 
-  const result = queryStoreProducts({
-    genderId: gender.id,
-    categorySlug: category.slug,
-    search: getStr("q") || undefined,
-    collection: getStr("collection") || undefined,
-    sort: getStr("sort") || "featured",
-    page: Number(getStr("page") || "1"),
-    limit: 12,
-  });
-
-  const filters = getDynamicFiltersForGender(gender.id, category.slug);
+  const [result, filters] = await Promise.all([
+    queryStoreProducts({
+      genderId: gender.id,
+      categorySlug: category.slug,
+      search: getStr("q") || undefined,
+      collection: getStr("collection") || undefined,
+      sort: getStr("sort") || "featured",
+      page: Number(getStr("page") || "1"),
+      limit: 12,
+    }),
+    getDynamicFiltersForGender(gender.id, category.slug),
+  ]);
   const genderLabel = gender.slug === "women" ? "النسائي" : "الرجالي";
 
   return (

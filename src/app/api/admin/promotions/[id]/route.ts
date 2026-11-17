@@ -26,7 +26,7 @@ export async function PUT(
 
   const { id } = await context.params;
   const promoId = Number(id);
-  const existing = queryOne<{ id: number }>(
+  const existing = await queryOne<{ id: number }>(
     `SELECT id FROM promotions WHERE id = ?`,
     promoId
   );
@@ -67,7 +67,7 @@ export async function PUT(
   if (d.is_active !== undefined) add("is_active", d.is_active ? 1 : 0);
 
   if (fields.length > 0) {
-    execute(
+    await execute(
       `UPDATE promotions SET ${fields.join(", ")} WHERE id = ?`,
       ...params,
       promoId
@@ -92,7 +92,7 @@ export async function DELETE(
   if ("error" in auth) return auth.error;
 
   const { id } = await context.params;
-  const res = execute(`DELETE FROM promotions WHERE id = ?`, Number(id));
+  const res = await execute(`DELETE FROM promotions WHERE id = ?`, Number(id));
   if (res.changes === 0) {
     return NextResponse.json({ error: "العرض غير موجود." }, { status: 404 });
   }

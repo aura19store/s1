@@ -47,8 +47,10 @@ export default async function InfoPage({
   const pageTitle = PAGE_TITLES[slug];
   if (!pageTitle) notFound();
 
-  const settings = getStoreSettings();
-  const genders = getGenders();
+  const [settings, genders] = await Promise.all([
+    getStoreSettings(),
+    getGenders(),
+  ]);
 
   const phoneDisplay = settings.contact_phone || AURA_CONTACT.phoneDisplay;
   const emailDisplay = settings.contact_email || AURA_CONTACT.email;

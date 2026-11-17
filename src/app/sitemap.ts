@@ -3,7 +3,7 @@ import { queryAll } from "@/db";
 
 export const dynamic = "force-dynamic";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://aura.iq";
   const now = new Date();
 
@@ -19,11 +19,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/info/privacy`, lastModified: now, priority: 0.5 },
   ];
 
-  const categories = queryAll<{ slug: string; gslug: string }>(`
-    SELECT c.slug, g.slug as gslug
-    FROM categories c JOIN genders g ON g.id = c.gender_id
-    WHERE c.is_visible = 1
-  `);
+  const [categories, products] = await Promise.all([
+    queryAll<{ slug: string; gslug: string }>(`
+      SELECT c.slug, g.slug as gslug
+      FROM categories c JOIN genders g ON g.id = c.gender_id
+      WHERE c.is_visible = 1
+    `),
+    queryAll<{ slug: string; gslug: string; updated_at: string }>(`
+      SELECT p.slug, g.slug as gslug, p.updated_at
+      FROM products p JOIN genders g ON g.id = p.gender_id
+      WHERE p.status = 'active'
+    `),
+  ]);
+
   for (const c of categories) {
     entries.push({
       url: `${baseUrl}/store/${c.gslug}/category/${c.slug}`,
@@ -32,11 +40,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     });
   }
 
-  const products = queryAll<{ slug: string; gslug: string; updated_at: string }>(`
-    SELECT p.slug, g.slug as gslug, p.updated_at
-    FROM products p JOIN genders g ON g.id = p.gender_id
-    WHERE p.status = 'active'
-  `);
   for (const p of products) {
     entries.push({
       url: `${baseUrl}/store/${p.gslug}/product/${p.slug}`,

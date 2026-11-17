@@ -22,7 +22,7 @@ export async function PUT(
 
   const { id } = await context.params;
   const catId = Number(id);
-  const existing = queryOne<{ id: number }>(
+  const existing = await queryOne<{ id: number }>(
     `SELECT id FROM categories WHERE id = ?`,
     catId
   );
@@ -75,7 +75,7 @@ export async function PUT(
 
     if (fields.length > 0) {
       fields.push("updated_at = datetime('now')");
-      execute(
+      await execute(
         `UPDATE categories SET ${fields.join(", ")} WHERE id = ?`,
         ...values,
         catId
@@ -110,18 +110,24 @@ export async function DELETE(
   const catId = Number(id);
 
   // Safe deletion: unlink products cleanly without losing them
-  const result = runTransaction((db) => {
-    const linked = db
-      .prepare(`SELECT COUNT(*) as c FROM products WHERE category_id = ?`)
-      .get(catId) as { c: number };
-    db.prepare(
-      `UPDATE products SET category_id = NULL, updated_at = datetime('now') WHERE category_id = ?`
-    ).run(catId);
-    db.prepare(
-      `UPDATE products SET subcategory_id = NULL WHERE subcategory_id = ?`
-    ).run(catId);
-    const del = db.prepare(`DELETE FROM categories WHERE id = ?`).run(catId);
-    return { changes: Number(del.changes), unlinkedProducts: Number(linked.c) };
+  const result = await runTransaction(async (tx) => {
+    const linked = await tx.queryOne<{ c: number }>(
+      `SELECT COUNT(*) as c FROM products WHERE category_id = ?`,
+      catId
+    );
+    await tx.execute(
+      `UPDATE products SET category_id = NULL, updated_at = datetime('now') WHERE category_id = ?`,
+      catId
+    );
+    await tx.execute(
+      `UPDATE products SET subcategory_id = NULL WHERE subcategory_id = ?`,
+      catId
+    );
+    const del = await tx.execute(`DELETE FROM categories WHERE id = ?`, catId);
+    return {
+      changes: Number(del.changes),
+      unlinkedProducts: Number(linked?.c ?? 0),
+    };
   });
 
   if (result.changes === 0) {

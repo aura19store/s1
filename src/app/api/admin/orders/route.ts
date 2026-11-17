@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     params.push(term, term, term, term);
   }
 
-  const orders = queryAll(
+  const orders = await queryAll(
     `SELECT o.*,
             (SELECT SUM(quantity) FROM order_items oi WHERE oi.order_id = o.id) as items_count
      FROM orders o

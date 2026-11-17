@@ -12,12 +12,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ids: [], products: [] });
   }
 
-  const rows = queryAll<{ product_id: number }>(
+  const rows = await queryAll<{ product_id: number }>(
     `SELECT product_id FROM wishlists WHERE session_token = ? ORDER BY created_at DESC`,
     token
   );
-  const ids = rows.map((r) => r.product_id);
-  let products = getProductsByIds(ids);
+  const ids = rows.map((r) => Number(r.product_id));
+  let products = await getProductsByIds(ids);
 
   if (genderSlug) {
     products = products.filter((p) => p.gender_slug === genderSlug);
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = await ensureGuestSessionToken();
-    const existing = queryOne<{ id: number }>(
+    const existing = await queryOne<{ id: number }>(
       `SELECT id FROM wishlists WHERE session_token = ? AND product_id = ?`,
       token,
       parsed.data.productId
@@ -51,9 +51,9 @@ export async function POST(request: NextRequest) {
 
     let added = false;
     if (existing) {
-      execute(`DELETE FROM wishlists WHERE id = ?`, existing.id);
+      await execute(`DELETE FROM wishlists WHERE id = ?`, existing.id);
     } else {
-      const prod = queryOne<{ id: number }>(
+      const prod = await queryOne<{ id: number }>(
         `SELECT id FROM products WHERE id = ? AND status = 'active'`,
         parsed.data.productId
       );
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         );
       }
-      execute(
+      await execute(
         `INSERT OR IGNORE INTO wishlists (session_token, product_id) VALUES (?, ?)`,
         token,
         parsed.data.productId
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       added = true;
     }
 
-    const allRows = queryAll<{ product_id: number }>(
+    const allRows = await queryAll<{ product_id: number }>(
       `SELECT product_id FROM wishlists WHERE session_token = ?`,
       token
     );

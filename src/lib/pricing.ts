@@ -32,8 +32,8 @@ export interface ComputedPricing {
   promotionName: string | null;
 }
 
-export function getActivePromotions(): PromotionRow[] {
-  const all = queryAll<PromotionRow>(
+export async function getActivePromotions(): Promise<PromotionRow[]> {
+  const all = await queryAll<PromotionRow>(
     `SELECT * FROM promotions WHERE is_active = 1`
   );
   const now = Date.now();
@@ -81,9 +81,9 @@ function promotionApplies(
 
 export function computeProductPricing(
   product: ProductPricingInput,
-  activePromos?: PromotionRow[]
+  activePromos: PromotionRow[] = []
 ): ComputedPricing {
-  const promos = activePromos ?? getActivePromotions();
+  const promos = activePromos;
   const originalPrice = Math.max(0, Math.round(product.price_iqd));
 
   // Base price starts from product's explicit discount_price_iqd if valid

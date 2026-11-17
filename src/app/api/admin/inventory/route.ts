@@ -17,30 +17,34 @@ export async function GET(request: NextRequest) {
     where = "p.stock_quantity <= 0";
   }
 
-  const items = queryAll(`
-    SELECT p.id, p.sku, p.name, p.stock_quantity, p.low_stock_threshold, p.status, p.price_iqd,
-           g.name as gender_name, c.name as category_name,
-           (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
-    FROM products p
-    JOIN genders g ON g.id = p.gender_id
-    LEFT JOIN categories c ON c.id = p.category_id
-    WHERE ${where}
-    ORDER BY p.stock_quantity ASC, p.id DESC
-  `);
+  const [items, summary] = await Promise.all([
+    queryAll(`
+      SELECT p.id, p.sku, p.name, p.stock_quantity, p.low_stock_threshold, p.status, p.price_iqd,
+             g.name as gender_name, c.name as category_name,
+             (SELECT url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.is_primary DESC, pi.sort_order ASC LIMIT 1) as primary_image
+      FROM products p
+      JOIN genders g ON g.id = p.gender_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE ${where}
+      ORDER BY p.stock_quantity ASC, p.id DESC
+    `),
+    queryAll<{ status_bucket: string; cnt: number }>(`
+      SELECT
+        CASE
+          WHEN stock_quantity <= 0 THEN 'out_of_stock'
+          WHEN stock_quantity <= low_stock_threshold THEN 'low_stock'
+          ELSE 'in_stock'
+        END as status_bucket,
+        COUNT(*) as cnt
+      FROM products
+      GROUP BY status_bucket
+    `),
+  ]);
 
-  const summary = queryAll<{ status_bucket: string; cnt: number }>(`
-    SELECT
-      CASE
-        WHEN stock_quantity <= 0 THEN 'out_of_stock'
-        WHEN stock_quantity <= low_stock_threshold THEN 'low_stock'
-        ELSE 'in_stock'
-      END as status_bucket,
-      COUNT(*) as cnt
-    FROM products
-    GROUP BY status_bucket
-  `);
-
-  return NextResponse.json({ items, summary });
+  return NextResponse.json({
+    items,
+    summary: summary.map((s) => ({ ...s, cnt: Number(s.cnt || 0) })),
+  });
 }
 
 const patchSchema = z.object({
@@ -63,14 +67,14 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (parsed.data.low_stock_threshold !== undefined) {
-    execute(
+    await execute(
       `UPDATE products SET stock_quantity = ?, low_stock_threshold = ?, updated_at = datetime('now') WHERE id = ?`,
       parsed.data.stock_quantity,
       parsed.data.low_stock_threshold,
       parsed.data.productId
     );
   } else {
-    execute(
+    await execute(
       `UPDATE products SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`,
       parsed.data.stock_quantity,
       parsed.data.productId

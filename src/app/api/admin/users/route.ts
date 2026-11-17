@@ -8,17 +8,18 @@ export async function GET() {
   const auth = await requireAdminApi("users");
   if ("error" in auth) return auth.error;
 
-  const users = queryAll(`
-    SELECT u.id, u.name, u.email, u.role_id, u.is_active, u.last_login_at, u.created_at,
-           r.slug as role_slug, r.name as role_name
-    FROM users u
-    JOIN roles r ON r.id = u.role_id
-    ORDER BY u.id ASC
-  `);
-
-  const roles = queryAll(
-    `SELECT id, slug, name, description, permissions_json FROM roles ORDER BY id ASC`
-  );
+  const [users, roles] = await Promise.all([
+    queryAll(`
+      SELECT u.id, u.name, u.email, u.role_id, u.is_active, u.last_login_at, u.created_at,
+             r.slug as role_slug, r.name as role_name
+      FROM users u
+      JOIN roles r ON r.id = u.role_id
+      ORDER BY u.id ASC
+    `),
+    queryAll(
+      `SELECT id, slug, name, description, permissions_json FROM roles ORDER BY id ASC`
+    ),
+  ]);
 
   return NextResponse.json({ users, roles });
 }
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const dup = queryOne<{ id: number }>(
+  const dup = await queryOne<{ id: number }>(
     `SELECT id FROM users WHERE LOWER(email) = LOWER(?)`,
     parsed.data.email
   );
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   const pwHash = hashPassword(parsed.data.password);
-  const res = execute(
+  const res = await execute(
     `INSERT INTO users (name, email, password_hash, role_id, is_active) VALUES (?, ?, ?, ?, ?)`,
     parsed.data.name,
     parsed.data.email,
