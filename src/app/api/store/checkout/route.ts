@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { queryAll, queryOne, runTransaction } from "@/db";
+import { getDatabaseDriver, queryAll, queryOne, runTransaction } from "@/db";
 import { getGuestSessionToken } from "@/lib/auth";
+import { insertOrderWithUniqueNumber } from "@/lib/order-number";
+import { getCustomerRefreshToken, getCustomerUser, isSameOriginCustomerRequest } from "@/lib/customer-auth";
 import {
   calculateShippingIQD,
   computeProductPricing,
@@ -29,6 +31,7 @@ const checkoutSchema = z.object({
   address: z.string().trim().min(5, "يرجى إدخال العنوان التفصيلي."),
   notes: z.string().trim().max(500).optional().default(""),
   paymentMethod: z.string().trim().min(2, "يرجى اختيار طريقة الدفع."),
+  rewardGrantId: z.number().int().positive().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -41,6 +44,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Never silently convert an expired customer session into a guest order.
+    const account = await getCustomerUser();
+    if (!account && await getCustomerRefreshToken()) {
+      return NextResponse.json({ error: "انتهت جلسة الحساب، يرجى تجديد تسجيل الدخول قبل تأكيد الطلب." }, { status: 401 });
+    }
+    if (account && !account.email) {
+      return NextResponse.json({ error: "حساب العميل لا يحتوي على بريد إلكتروني صالح." }, { status: 400 });
+    }
+
     const body = await request.json();
     const parsed = checkoutSchema.safeParse(body);
     if (!parsed.success) {
@@ -49,6 +61,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
+    if (parsed.data.rewardGrantId && !isSameOriginCustomerRequest(request)) {
+      return NextResponse.json({ error: "الطلب غير مسموح." }, { status: 403 });
+    }
     const settings = await getStoreSettings();
     const enabledPaymentNames = settings.payment_methods
       .filter((m) => m.enabled)
@@ -146,15 +161,28 @@ export async function POST(request: NextRequest) {
       settings.free_shipping_threshold_iqd,
       settings.shipping_fee_iqd
     );
-    const totalIqd = subtotalIqd + shippingIqd;
+    const grossTotalIqd = subtotalIqd + shippingIqd;
+    if (parsed.data.rewardGrantId && !account) return NextResponse.json({ error: "يرجى تسجيل الدخول لاستخدام الرصيد." }, { status: 401 });
 
     const orderResult = await runTransaction(async (tx) => {
-      // Generate unique order number
-      const countRow = await tx.queryOne<{ c: number }>(
-        `SELECT COUNT(*) as c FROM orders`
-      );
-      const orderNumber = `AURA-2026-${1001 + Number(countRow?.c ?? 0) + Math.floor(Math.random() * 50)}`;
-
+      let creditUsedIqd = 0;
+      const grantId = parsed.data.rewardGrantId;
+      if (grantId && account) {
+        const grant = await tx.queryOne<{ remaining_iqd: number }>(
+          `SELECT remaining_iqd FROM aura_reward_grants WHERE id = ? AND auth_user_id = ? AND kind = 'credit' AND status = 'available'
+           AND remaining_iqd > 0 AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`,
+          grantId, account.id);
+        if (!grant) throw new Error("INVALID_REWARD_CREDIT");
+        creditUsedIqd = Math.min(grossTotalIqd, Number(grant.remaining_iqd));
+        if (creditUsedIqd <= 0) throw new Error("INVALID_REWARD_CREDIT");
+        const debit = await tx.execute(`UPDATE aura_reward_grants SET remaining_iqd = remaining_iqd - ?,
+          status = CASE WHEN remaining_iqd = ? THEN 'used' ELSE 'available' END, used_at = datetime('now')
+          WHERE id = ? AND auth_user_id = ? AND status = 'available' AND remaining_iqd >= ?
+            AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`,
+          creditUsedIqd, creditUsedIqd, grantId, account.id, creditUsedIqd);
+        if (debit.changes !== 1) throw new Error("INVALID_REWARD_CREDIT");
+      }
+      const totalIqd = grossTotalIqd - creditUsedIqd;
       // Upsert Customer
       const existingCustomer = await tx.queryOne<{ id: number }>(
         `SELECT id FROM customers WHERE phone = ?`,
@@ -195,29 +223,42 @@ export async function POST(request: NextRequest) {
         customerId = Number(custIns.lastInsertRowid);
       }
 
-      // Insert Order
-      const orderIns = await tx.execute(
-        `INSERT INTO orders (
-           order_number, customer_id, customer_name, customer_phone, customer_email,
-           governorate, city, address, notes, payment_method, payment_status,
-           currency_code, subtotal_iqd, discount_iqd, shipping_iqd, total_iqd, status
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'IQD', ?, ?, ?, ?, 'pending')`,
-        orderNumber,
-        customerId,
-        parsed.data.customerName,
-        parsed.data.customerPhone,
-        parsed.data.customerEmail || "",
-        parsed.data.governorate,
-        parsed.data.city,
-        parsed.data.address,
-        parsed.data.notes || "",
-        chosenPayment,
-        subtotalIqd,
-        discountIqd,
-        shippingIqd,
-        totalIqd
+      // The DB identity allocates an id; the unique index arbitrates collisions
+      // with both historical order numbers and concurrent checkouts.
+      const { orderId, orderNumber } = await insertOrderWithUniqueNumber(tx, getDatabaseDriver(), async (id, number) => {
+        const result = await tx.execute(
+          `INSERT INTO orders (
+             id, order_number, customer_id, customer_name, customer_phone, customer_email,
+             governorate, city, address, notes, payment_method, payment_status,
+             currency_code, subtotal_iqd, discount_iqd, shipping_iqd, total_iqd, status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'IQD', ?, ?, ?, ?, 'pending')
+           ON CONFLICT (order_number) DO NOTHING`,
+          id, number, customerId, parsed.data.customerName, parsed.data.customerPhone,
+          parsed.data.customerEmail || "", parsed.data.governorate, parsed.data.city,
+          parsed.data.address, parsed.data.notes || "", chosenPayment,
+          subtotalIqd, discountIqd, shippingIqd, totalIqd
+        );
+        return result.changes;
+      });
+      if (creditUsedIqd > 0 && grantId) await tx.execute(
+        `INSERT INTO aura_reward_credit_uses (grant_id, order_id, amount_iqd) VALUES (?, ?, ?)`, grantId, orderId, creditUsedIqd
       );
-      const orderId = Number(orderIns.lastInsertRowid);
+      if (account?.email) {
+        // Link only this new authenticated order, never historical guest orders.
+        await tx.execute(
+          `INSERT INTO customer_accounts (auth_user_id, email, display_name)
+           VALUES (?, ?, ?)
+           ON CONFLICT (auth_user_id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name`,
+          account.id,
+          account.email.toLowerCase(),
+          typeof account.user_metadata?.display_name === "string" ? account.user_metadata.display_name : ""
+        );
+        await tx.execute(
+          `INSERT INTO customer_account_orders (order_id, auth_user_id) VALUES (?, ?)`,
+          orderId,
+          account.id
+        );
+      }
 
       const insertItemSql = `INSERT INTO order_items (
            order_id, product_id, product_name, product_sku, product_image,
@@ -248,7 +289,7 @@ export async function POST(request: NextRequest) {
       // Clear cart
       await tx.execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
 
-      return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd };
+      return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd, creditUsedIqd };
     });
 
     return NextResponse.json({
@@ -256,6 +297,8 @@ export async function POST(request: NextRequest) {
       order: orderResult,
     });
   } catch (err) {
+    if (err instanceof Error && (err.message === "ORDER_NUMBER_ALLOCATION_FAILED" || err.message === "ORDER_ID_ALLOCATION_FAILED")) return NextResponse.json({ error: "تعذر تخصيص رقم للطلب، يرجى المحاولة مجددًا." }, { status: 503 });
+    if (err instanceof Error && err.message === "INVALID_REWARD_CREDIT") return NextResponse.json({ error: "الرصيد المختار غير متاح أو منتهي الصلاحية." }, { status: 409 });
     console.error("Checkout API error:", err);
     return NextResponse.json(
       { error: "حدث خطأ أثناء تأكيد الطلب، يرجى المحاولة مجددًا." },

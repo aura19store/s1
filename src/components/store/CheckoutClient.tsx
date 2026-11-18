@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -71,6 +71,13 @@ export function CheckoutClient({
   const [paymentMethod, setPaymentMethod] = useState(
     availableMethods[0]?.name || "الدفع عند الاستلام"
   );
+  const [credits, setCredits] = useState<{ id: number; reward_name: string; remaining_iqd: number }[]>([]);
+  const [rewardGrantId, setRewardGrantId] = useState("");
+  useEffect(() => { fetch("/api/store/customer/me", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(data => {
+    if (data?.rewards?.grants) setCredits(data.rewards.grants.filter((g: { kind: string; status: string; remaining_iqd: number; expires_at: string | null }) => g.kind === "credit" && g.status === "available" && Number(g.remaining_iqd) > 0 && (!g.expires_at || new Date(g.expires_at).getTime() > Date.now())));
+  }).catch(() => {}); }, []);
+  const selectedCredit = credits.find(g => String(g.id) === rewardGrantId);
+  const previewTotal = Math.max(0, cart.totalIqd - Number(selectedCredit?.remaining_iqd || 0));
   const [copiedCard, setCopiedCard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -80,7 +87,7 @@ export function CheckoutClient({
   const cardNumber = AURA_CONTACT.mastercardNumber;
   const whatsappSupportUrl = buildWhatsAppUrl(
     contactPhone || AURA_CONTACT.phoneDisplay,
-    `مرحبًا، أود إرسال وصل التحويل الخاص بطلبي من متجر AURA عبر ماستر كارد (الإجمالي: ${formatIQD(cart.totalIqd)}).`
+    `مرحبًا، أود إرسال وصل التحويل الخاص بطلبي من متجر AURA عبر ماستر كارد (الإجمالي: ${formatIQD(previewTotal)}).`
   );
 
   const handleCopyCard = async () => {
@@ -127,6 +134,7 @@ export function CheckoutClient({
           address,
           notes,
           paymentMethod,
+          ...(rewardGrantId ? { rewardGrantId: Number(rewardGrantId) } : {}),
         }),
       });
       const data = await res.json();
@@ -192,6 +200,7 @@ export function CheckoutClient({
             </div>
           )}
 
+          {credits.length > 0 && <section className="bg-white border border-[#D8C8B5]/70 p-6" dir="rtl"><label className="block text-sm">استخدام رصيد مكافآت AURA<select className="mt-2 w-full border p-3" value={rewardGrantId} onChange={e => setRewardGrantId(e.target.value)}><option value="">عدم استخدام الرصيد</option>{credits.map(g => <option key={g.id} value={g.id}>{g.reward_name} — {formatIQD(Number(g.remaining_iqd))}</option>)}</select></label><p className="mt-2 text-xs">الإجمالي التقريبي بعد الرصيد {formatIQD(previewTotal)}؛ يُحتسب المبلغ النهائي على الخادم عند تأكيد الطلب.</p></section>}
           {/* Section 1: Customer Info */}
           <section className="bg-white border border-[#D8C8B5]/70 p-6 sm:p-8 space-y-5">
             <h2 className="font-editorial text-2xl text-[#111111] pb-3 border-b border-[#D8C8B5]/50">
@@ -393,7 +402,7 @@ export function CheckoutClient({
                         تعليمات الدفع عبر ماستر كارد
                       </h3>
                       <p className="text-[11px] text-[#D8C8B5]/80">
-                        يرجى تحويل قيمة الطلب ({formatIQD(cart.totalIqd)}) إلى رقم
+                        يرجى تحويل قيمة الطلب ({formatIQD(previewTotal)}) إلى رقم
                         البطاقة أدناه
                       </p>
                     </div>
@@ -522,7 +531,7 @@ export function CheckoutClient({
               </div>
               <div className="flex justify-between text-lg font-bold text-[#111111] pt-3 border-t border-[#D8C8B5]/60">
                 <span>الإجمالي المستحق</span>
-                <span>{formatIQD(cart.totalIqd)}</span>
+                <span>{formatIQD(previewTotal)}</span>
               </div>
             </div>
 
@@ -543,7 +552,7 @@ export function CheckoutClient({
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>تأكيد الطلب ({formatIQD(cart.totalIqd)})</span>
+                  <span>تأكيد الطلب ({formatIQD(previewTotal)})</span>
                 </>
               )}
             </button>

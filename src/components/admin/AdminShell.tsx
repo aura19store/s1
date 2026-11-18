@@ -41,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/inventory", label: "إدارة المخزون", permission: "inventory", icon: Warehouse },
   { href: "/admin/orders", label: "الطلبات", permission: "orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "العملاء", permission: "customers", icon: Users },
+  { href: "/admin/rewards", label: "المكافآت", permission: "customers", icon: Users },
   { href: "/admin/users", label: "المستخدمون والصلاحيات", permission: "users", icon: Shield },
   { href: "/admin/settings", label: "الإعدادات", permission: "settings", icon: Settings },
 ];
