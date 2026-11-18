@@ -276,6 +276,26 @@ CREATE TABLE IF NOT EXISTS media (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Durable deletion intent survives a Storage/DB partial failure. No FK: completed
+-- jobs must remain after the media row is removed so retries stay idempotent.
+CREATE TABLE IF NOT EXISTS media_deletion_jobs (
+  id INTEGER PRIMARY KEY,
+  url TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending', 'completed')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS order_status_operations (
+  id TEXT PRIMARY KEY,
+  order_id INTEGER NOT NULL,
+  expected_status TEXT NOT NULL,
+  requested_status TEXT NOT NULL,
+  result_status TEXT NOT NULL DEFAULT '',
+  result_code INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS store_settings (
   id INTEGER PRIMARY KEY CHECK(id = 1),
   store_name TEXT NOT NULL DEFAULT 'AURA',

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Edit3, Trash2, Shield, Check, X, Loader2, AlertCircle } from "lucide-react";
 import { PERMISSION_LABELS } from "@/lib/constants";
 import { formatArabicDate } from "@/lib/format";
@@ -37,13 +37,18 @@ export default function AdminUsersPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const pendingSave = useRef(false);
+  const pendingDeletes = useRef(new Set<number>());
+  const listRevision = useRef(0);
   const [roleId, setRoleId] = useState<number>(2);
   const [isActive, setIsActive] = useState(true);
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
-  const [deleting, setDeleting] = useState(false);
+
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -51,6 +56,7 @@ export default function AdminUsersPage() {
   };
 
   const loadData = useCallback(async () => {
+    const revision = listRevision.current;
     setLoading(true);
     setErrorBanner("");
     try {
@@ -59,7 +65,7 @@ export default function AdminUsersPage() {
       if (!res.ok) {
         setErrorBanner(data.error || "ليس لديك صلاحية للوصول إلى هذا القسم.");
       } else {
-        setUsers(data.users || []);
+        if (revision === listRevision.current) setUsers((data.users || []).filter((user: UserRow) => !pendingDeletes.current.has(user.id)));
         setRoles(data.roles || []);
       }
     } finally {
@@ -69,6 +75,10 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     loadData();
+    let active = true;
+    fetch("/api/admin/auth/me", { cache: "no-store" }).then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (active && data?.user) setCurrentUserId(data.user.id); }).catch(() => {});
+    return () => { active = false; };
   }, [loadData]);
 
   const openCreate = () => {
@@ -76,6 +86,7 @@ export default function AdminUsersPage() {
     setName("");
     setEmail("");
     setPassword("");
+    setCurrentPassword("");
     setRoleId(roles[1]?.id || roles[0]?.id || 2);
     setIsActive(true);
     setFormError("");
@@ -87,6 +98,7 @@ export default function AdminUsersPage() {
     setName(u.name);
     setEmail(u.email);
     setPassword("");
+    setCurrentPassword("");
     setRoleId(u.role_id);
     setIsActive(Boolean(u.is_active));
     setFormError("");
@@ -95,46 +107,55 @@ export default function AdminUsersPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pendingSave.current) return;
+    pendingSave.current = true;
     setFormError("");
     setSaving(true);
     const payload = {
       name,
       email,
       password,
+      ...(editing && editing.id === currentUserId && password ? { current_password: currentPassword } : {}),
       role_id: Number(roleId),
       is_active: isActive,
     };
     const url = editing ? `/api/admin/users/${editing.id}` : "/api/admin/users";
-    const res = await fetch(url, {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      setFormError(data.error || "تعذر حفظ بيانات المستخدم.");
-      return;
+    try {
+      const res = await fetch(url, {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setFormError(data.error || "تعذر حفظ بيانات المستخدم."); return; }
+      setModalOpen(false);
+      setPassword(""); setCurrentPassword("");
+      flash(data.message || "تم حفظ المستخدم بنجاح.");
+      void loadData();
+    } catch {
+      setFormError("تعذر الاتصال بالخادم. تحقق من البيانات قبل إعادة المحاولة.");
+    } finally {
+      pendingSave.current = false;
+      setSaving(false);
     }
-    setModalOpen(false);
-    flash(data.message || "تم حفظ المستخدم بنجاح.");
-    loadData();
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const res = await fetch(`/api/admin/users/${deleteTarget.id}`, {
-      method: "DELETE",
-    });
-    const data = await res.json();
-    setDeleting(false);
-    setDeleteTarget(null);
-    if (!res.ok) {
-      setErrorBanner(data.error || "تعذر حذف المستخدم.");
-    } else {
+    const target = deleteTarget;
+    if (!target || pendingDeletes.current.has(target.id)) return;
+    pendingDeletes.current.add(target.id); listRevision.current += 1;
+    setDeleteTarget(null); setErrorBanner("");
+    setUsers((previous) => previous.filter((user) => user.id !== target.id));
+    try {
+      const res = await fetch(`/api/admin/users/${target.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر حذف المستخدم.");
       flash(data.message || "تم حذف المستخدم.");
-      loadData();
+    } catch (error) {
+      setUsers((previous) => previous.some((user) => user.id === target.id) ? previous : [...previous, target].sort((a, b) => a.id - b.id));
+      setErrorBanner(error instanceof Error ? error.message : "تعذر حذف المستخدم.");
+    } finally {
+      listRevision.current += 1; pendingDeletes.current.delete(target.id);
     }
   };
 
@@ -351,6 +372,11 @@ export default function AdminUsersPage() {
               />
             </div>
 
+            {editing && editing.id === currentUserId && password && (
+              <label className="block text-xs font-semibold">كلمة المرور الحالية
+                <input type="password" required autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="block w-full border border-[#D8C8B5] px-3 py-2 text-sm" />
+              </label>
+            )}
             <div>
               <label className="block text-xs font-semibold mb-1">
                 {editing
@@ -418,7 +444,6 @@ export default function AdminUsersPage() {
         open={Boolean(deleteTarget)}
         title="تأكيد حذف المستخدم"
         message={`هل تريد حذف حساب "${deleteTarget?.name || ""}" نهائيًا؟`}
-        loading={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

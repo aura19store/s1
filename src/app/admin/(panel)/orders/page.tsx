@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Eye, X, Check, Loader2, Download } from "lucide-react";
 import { formatArabicDateTime, formatIQD } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from "@/lib/constants";
@@ -56,7 +56,14 @@ export default function AdminOrdersPage() {
     order: OrderRow;
     items: OrderItemDetail[];
   } | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingIds, setUpdatingIds] = useState<ReadonlySet<number>>(new Set());
+  const pendingStatus = useRef(new Map<number, string>());
+  const ordersRevision = useRef(0);
+  const loadSequence = useRef(0);
+  const [statusError, setStatusError] = useState("");
+  const uncertainStatuses = useRef(new Map<number, { previous: string; requested: string; operationId: string }>());
+  const [uncertainIds, setUncertainIds] = useState<ReadonlySet<number>>(new Set());
+  const resolvingStatuses = useRef(new Set<number>());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
 
@@ -93,6 +100,8 @@ export default function AdminOrdersPage() {
   };
 
   const loadOrders = useCallback(async () => {
+    const revision = ordersRevision.current;
+    const sequence = ++loadSequence.current;
     setLoading(true);
     const sp = new URLSearchParams();
     if (statusFilter !== "all") sp.set("status", statusFilter);
@@ -103,10 +112,14 @@ export default function AdminOrdersPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setOrders(data.orders || []);
+        if (revision === ordersRevision.current && sequence === loadSequence.current) {
+          setOrders((data.orders || []).map((order: OrderRow) => pendingStatus.current.has(order.id) ? { ...order, status: pendingStatus.current.get(order.id)! } : order));
+        }
       }
+    } catch {
+      setStatusError("تعذر تحميل الطلبات.");
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [statusFilter, search]);
 
@@ -115,31 +128,74 @@ export default function AdminOrdersPage() {
   }, [loadOrders]);
 
   const openOrderDetail = async (id: number) => {
+    const revision = ordersRevision.current;
     const res = await fetch(`/api/admin/orders/${id}`, { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
-      setSelectedOrder(data);
+      if (revision !== ordersRevision.current) return;
+      const status = pendingStatus.current.get(id);
+      setSelectedOrder(status ? { ...data, order: { ...data.order, status } } : data);
     }
   };
 
-  const updateStatus = async (orderId: number, status: string) => {
-    setUpdatingStatus(true);
-    const res = await fetch(`/api/admin/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setUpdatingStatus(false);
-    if (res.ok) {
-      flash(`تم تحديث حالة الطلب إلى "${ORDER_STATUS_LABELS[status]}".`);
-      loadOrders();
-      if (selectedOrder && selectedOrder.order.id === orderId) {
-        setSelectedOrder({
-          ...selectedOrder,
-          order: { ...selectedOrder.order, status },
-        });
+  const resolveStatus = async (orderId: number, previous: string, status: string, operationId: string) => {
+    if (resolvingStatuses.current.has(orderId)) return;
+    resolvingStatuses.current.add(orderId);
+    setStatusError("");
+    uncertainStatuses.current.delete(orderId);
+    setUncertainIds(new Set(uncertainStatuses.current.keys()));
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let res: Response;
+        try {
+          res = await fetch(`/api/admin/orders/${orderId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status, expected_status: previous, operation_id: operationId }),
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch {
+          continue; // A lost response is ambiguous: retry the same conditional mutation.
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.status >= 500 || (attempt > 0 && !res.ok && res.status !== 409)) continue; // A previous attempt may still commit.
+        const confirmed = (res.ok || res.status === 409) && typeof data.status === "string" ? data.status : res.ok ? status : previous;
+        setOrders((list) => list.map((order) => order.id === orderId ? { ...order, status: confirmed } : order));
+        setSelectedOrder((detail) => detail?.order.id === orderId ? { ...detail, order: { ...detail.order, status: confirmed } } : detail);
+        if (res.ok || (res.status === 409 && confirmed === status)) {
+          flash(`تم تأكيد حالة الطلب: "${ORDER_STATUS_LABELS[confirmed] || confirmed}".`);
+        } else {
+          setStatusError(data.error || "تعذر تحديث حالة الطلب.");
+        }
+        if (statusFilter !== "all" && confirmed !== statusFilter) setOrders((list) => list.filter((order) => order.id !== orderId));
+        pendingStatus.current.delete(orderId);
+        ordersRevision.current += 1;
+        setUpdatingIds(new Set(pendingStatus.current.keys()));
+        return;
       }
+      // Neither attempt established an outcome. Keep the row disabled and explicitly unconfirmed.
+      uncertainStatuses.current.set(orderId, { previous, requested: status, operationId });
+      setUncertainIds(new Set(uncertainStatuses.current.keys()));
+      setStatusError("تعذر تأكيد حالة الطلب بسبب الاتصال. أعد المحاولة للتحقق قبل إجراء تغيير آخر.");
+    } finally {
+      resolvingStatuses.current.delete(orderId);
     }
+  };
+
+  const updateStatus = (orderId: number, status: string) => {
+    const previous = orders.find((order) => order.id === orderId)?.status ?? (selectedOrder?.order.id === orderId ? selectedOrder.order.status : undefined);
+    if (!previous || previous === status || pendingStatus.current.has(orderId)) return;
+    let operationId: string;
+    try { operationId = crypto.randomUUID(); } catch { setStatusError("تعذر بدء تحديث آمن للحالة."); return; }
+    pendingStatus.current.set(orderId, status); ordersRevision.current += 1;
+    setUpdatingIds(new Set(pendingStatus.current.keys())); setStatusError("");
+    setOrders((list) => list.map((order) => order.id === orderId ? { ...order, status } : order));
+    setSelectedOrder((detail) => detail?.order.id === orderId ? { ...detail, order: { ...detail.order, status } } : detail);
+    void resolveStatus(orderId, previous, status, operationId);
+  };
+
+  const retryStatus = (orderId: number) => {
+    const pending = uncertainStatuses.current.get(orderId);
+    if (pending) void resolveStatus(orderId, pending.previous, pending.requested, pending.operationId);
   };
 
   return (
@@ -157,6 +213,8 @@ export default function AdminOrdersPage() {
           <span>{notice}</span>
         </div>
       )}
+
+      {statusError && <p role="alert" className="text-rose-700 text-xs">{statusError}</p>}
 
       {/* Search & Status Filters */}
       <div className="bg-white border border-[#D8C8B5]/70 p-4 flex flex-col sm:flex-row gap-3">
@@ -234,7 +292,7 @@ export default function AdminOrdersPage() {
                     <td className="py-3.5 px-3">
                       <select
                         value={o.status}
-                        disabled={updatingStatus}
+                        disabled={updatingIds.has(o.id)}
                         onChange={(e) => updateStatus(o.id, e.target.value)}
                         className={`px-2 py-1 border text-[11px] font-semibold cursor-pointer ${
                           ORDER_STATUS_STYLES[o.status] || "bg-white"
@@ -246,6 +304,8 @@ export default function AdminOrdersPage() {
                           </option>
                         ))}
                       </select>
+                      {uncertainIds.has(o.id) && <div role="alert" className="mt-1 text-rose-700">الحالة غير مؤكدة <button type="button" className="underline" onClick={() => retryStatus(o.id)}>إعادة التحقق</button></div>}
+                      {updatingIds.has(o.id) && !uncertainIds.has(o.id) && <span className="text-xs"> جاري التأكيد...</span>}
                     </td>
                     <td className="py-3.5 px-3 text-[#111111]/65 whitespace-nowrap">
                       {formatArabicDateTime(o.created_at)}
@@ -327,9 +387,10 @@ export default function AdminOrdersPage() {
 
             {/* Status Update */}
             <div className="flex items-center justify-between gap-3 bg-[#EFEAE2]/60 p-3.5 border border-[#D8C8B5]/60">
-              <span className="text-xs font-semibold">تحديث حالة الطلب:</span>
+              <span className="text-xs font-semibold">تحديث حالة الطلب: {uncertainIds.has(selectedOrder.order.id) && <><span className="text-rose-700">غير مؤكدة </span><button type="button" className="underline" onClick={() => retryStatus(selectedOrder.order.id)}>إعادة التحقق</button></>}</span>
               <select
                 value={selectedOrder.order.status}
+                disabled={updatingIds.has(selectedOrder.order.id)}
                 onChange={(e) =>
                   updateStatus(selectedOrder.order.id, e.target.value)
                 }

@@ -35,7 +35,9 @@ const patchOrderSchema = z.object({
     "delivered",
     "cancelled",
   ]),
-});
+  expected_status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"]).optional(),
+  operation_id: z.string().uuid().optional(),
+}).refine((value) => !value.operation_id || value.expected_status !== undefined);
 
 export async function PATCH(
   request: NextRequest,
@@ -78,13 +80,34 @@ export async function PATCH(
     if (!reviewInstalled) return NextResponse.json({ error: "تعذر تحديث الطلب قبل اكتمال تهيئة سجل مراجعة الرصيد." }, { status: 503 });
   }
 
-  await runTransaction(async (tx) => {
-    // Serialize status changes with claims and with other status updates.
+  const result = await runTransaction(async (tx) => {
+    // Lock the order before recording an operation so retries and other status updates serialize.
     const locked = await tx.queryOne<{ status: string }>(
       `SELECT status FROM orders WHERE id = ?${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`,
       orderId
     );
     if (!locked) throw new Error("Order no longer exists");
+    const operationId = parsed.data.operation_id;
+    if (operationId) {
+      await tx.execute(
+        `INSERT OR IGNORE INTO order_status_operations (id, order_id, expected_status, requested_status) VALUES (?, ?, ?, ?)`,
+        operationId, orderId, parsed.data.expected_status!, nextStatus
+      );
+      const previous = await tx.queryOne<{ order_id: number; expected_status: string; requested_status: string; result_code: number }>(
+        `SELECT order_id, expected_status, requested_status, result_code FROM order_status_operations WHERE id = ?${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`,
+        operationId
+      );
+      if (!previous || Number(previous.order_id) !== orderId || previous.expected_status !== parsed.data.expected_status || previous.requested_status !== nextStatus) {
+        return { code: 400, status: locked.status, error: "معرّف العملية مستخدم لطلب آخر." };
+      }
+      if (Number(previous.result_code) !== 0) {
+        return { code: Number(previous.result_code), status: locked.status, error: "تغيرت حالة الطلب في جلسة أخرى." };
+      }
+    }
+    if (parsed.data.expected_status !== undefined && locked.status !== parsed.data.expected_status) {
+      if (operationId) await tx.execute(`UPDATE order_status_operations SET result_code = 409, result_status = ? WHERE id = ?`, locked.status, operationId);
+      return { code: 409, status: locked.status, error: "تغيرت حالة الطلب في جلسة أخرى." };
+    }
     // If transitioning to cancelled from a non-cancelled state, restore product stock
     if (nextStatus === "cancelled" && locked.status !== "cancelled") {
       const items = await tx.queryAll<{ product_id: number; quantity: number }>(
@@ -140,7 +163,9 @@ export async function PATCH(
         }
       }
     }
+    if (operationId) await tx.execute(`UPDATE order_status_operations SET result_code = 200, result_status = ? WHERE id = ?`, nextStatus, operationId);
+    return { code: 200, status: nextStatus, error: "" };
   });
-
-  return NextResponse.json({ message: "تم تحديث حالة الطلب بنجاح." });
+  if (result.code !== 200) return NextResponse.json({ error: result.error, status: result.status }, { status: result.code });
+  return NextResponse.json({ message: "تم تحديث حالة الطلب بنجاح.", status: result.status });
 }

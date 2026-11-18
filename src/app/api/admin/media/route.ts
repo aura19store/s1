@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execute, queryAll, queryOne } from "@/db";
+import { execute, getDatabaseDriver, queryAll, queryOne, runTransaction } from "@/db";
+import { deleteMediaWithJournal } from "@/lib/media-deletion";
 import { requireAdminApi } from "@/lib/auth";
 import {
-  deleteMediaFromSupabaseStorage,
+  ensureSupabaseMediaAbsent,
   deleteMediaObjectFromSupabaseStorage,
   extractSupabaseStoragePath,
   MediaStorageError,
@@ -26,13 +27,23 @@ export async function GET(request: NextRequest) {
   if ("error" in auth) return auth.error;
 
   const category = request.nextUrl.searchParams.get("category");
-  const where = category && category !== "all" ? "WHERE category = ?" : "";
+  const where = category && category !== "all" ? "WHERE m.category = ?" : "";
   const params = category && category !== "all" ? [category] : [];
 
-  const items = await queryAll(
-    `SELECT * FROM media ${where} ORDER BY id DESC`,
-    ...params
-  );
+  let items;
+  try {
+    items = await queryAll(
+      `SELECT m.*, COALESCE(j.state, '') AS deletion_state FROM media m
+       LEFT JOIN media_deletion_jobs j ON j.id = m.id ${where} ORDER BY m.id DESC`,
+      ...params
+    );
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    const message = error instanceof Error ? error.message : "";
+    if (code !== "42P01" && !message.includes("no such table: media_deletion_jobs")) throw error;
+    // The additive migration is a deployment prerequisite for deletion, not listing.
+    items = await queryAll(`SELECT m.* FROM media m ${where} ORDER BY m.id DESC`, ...params);
+  }
 
   return NextResponse.json({
     items,
@@ -187,33 +198,29 @@ export async function DELETE(request: NextRequest) {
   if ("error" in auth) return auth.error;
 
   const id = Number(request.nextUrl.searchParams.get("id"));
-  const item = await queryOne<{ id: number; url: string }>(
-    `SELECT id, url FROM media WHERE id = ?`,
-    id
-  );
-  if (!item) {
-    return NextResponse.json({ error: "الصورة غير موجودة." }, { status: 404 });
-  }
-
-  await execute(`DELETE FROM media WHERE id = ?`, id);
-
-  // Clean up file from Supabase Storage or local /uploads (keep core /images safe)
-  if (item.url.startsWith("http://") || item.url.startsWith("https://")) {
-    await deleteMediaFromSupabaseStorage(item.url);
-  } else if (item.url.startsWith("/uploads/") && !isCloudflareStorageRuntime() && process.env.NODE_ENV !== "production") {
-    const [{ default: fs }, { default: path }] = await Promise.all([
-      import("node:fs"),
-      import("node:path"),
-    ]);
-    const filePath = path.join(process.cwd(), "public", item.url);
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch {
-        // ignore fs error
+  if (!Number.isSafeInteger(id) || id < 1) return NextResponse.json({ error: "معرّف الصورة غير صالح." }, { status: 400 });
+  try {
+    const result = await deleteMediaWithJournal(id, runTransaction, getDatabaseDriver(), async (url) => {
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        await ensureSupabaseMediaAbsent(url);
+      } else if (url.startsWith("/images/")) {
+        // Core packaged images are not owned by the media library.
+      } else if (url.startsWith("/uploads/") && !isCloudflareStorageRuntime() && process.env.NODE_ENV !== "production") {
+        const [{ default: fs }, { default: path }] = await Promise.all([import("node:fs/promises"), import("node:path")]);
+        const base = path.resolve(process.cwd(), "public", "uploads");
+        const file = path.resolve(base, url.slice("/uploads/".length));
+        if (!file.startsWith(base + path.sep)) throw new Error("Invalid media path");
+        try { await fs.unlink(file); } catch (error) {
+          if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
+        }
+      } else {
+        throw new Error("Unsupported media location");
       }
-    }
+    });
+    if (result === "not_found") return NextResponse.json({ error: "الصورة غير موجودة." }, { status: 404 });
+    return NextResponse.json({ message: "تم حذف الصورة من المكتبة بنجاح." });
+  } catch {
+    // The committed journal retains the URL even when the outcome is ambiguous.
+    return NextResponse.json({ error: "تعذر تأكيد حذف الصورة. أعد المحاولة للتحقق وإكمال العملية بأمان.", retryable: true }, { status: 503 });
   }
-
-  return NextResponse.json({ message: "تم حذف الصورة من المكتبة بنجاح." });
 }

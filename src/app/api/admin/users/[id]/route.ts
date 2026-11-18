@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { execute, queryOne } from "@/db";
 import { requireAdminApi } from "@/lib/auth";
-import { hashPassword } from "@/lib/password";
+import { hashPassword, verifyPassword } from "@/lib/password";
 
 const updateUserSchema = z.object({
   name: z.string().trim().min(2).optional(),
   email: z.string().trim().email().optional(),
   password: z.string().min(6).optional().or(z.literal("")),
+  current_password: z.string().optional(),
   role_id: z.number().int().positive().optional(),
   is_active: z.boolean().optional(),
 });
@@ -46,6 +47,17 @@ export async function PUT(
     );
   }
 
+  let expectedPasswordHash: string | undefined;
+  if (userId === auth.user.id && d.password) {
+    const account = await queryOne<{ password_hash: string }>(
+      `SELECT password_hash FROM users WHERE id = ?`, userId
+    );
+    if (!account || !d.current_password || !verifyPassword(d.current_password, account.password_hash)) {
+      return NextResponse.json({ error: "كلمة المرور الحالية غير صحيحة." }, { status: 400 });
+    }
+    expectedPasswordHash = account.password_hash;
+  }
+
   const fields: string[] = [];
   const params: (string | number)[] = [];
 
@@ -72,11 +84,15 @@ export async function PUT(
 
   if (fields.length > 0) {
     fields.push("updated_at = datetime('now')");
-    await execute(
-      `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+    const result = await execute(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = ?${expectedPasswordHash ? " AND password_hash = ?" : ""}`,
       ...params,
-      userId
+      userId,
+      ...(expectedPasswordHash ? [expectedPasswordHash] : [])
     );
+    if (result.changes !== 1) {
+      return NextResponse.json({ error: "تغير الحساب أثناء الحفظ، يرجى المحاولة مجددًا." }, { status: 409 });
+    }
   }
 
   return NextResponse.json({ message: "تم تحديث بيانات المستخدم بنجاح." });
@@ -98,6 +114,7 @@ export async function DELETE(
     );
   }
 
-  await execute(`DELETE FROM users WHERE id = ?`, userId);
+  const result = await execute(`DELETE FROM users WHERE id = ?`, userId);
+  if (result.changes !== 1) return NextResponse.json({ error: "المستخدم غير موجود." }, { status: 404 });
   return NextResponse.json({ message: "تم حذف المستخدم بنجاح." });
 }

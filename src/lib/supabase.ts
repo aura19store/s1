@@ -44,7 +44,7 @@ export function isSupabaseStorageConfigured(): boolean {
   return status.urlConfigured && status.keyConfigured;
 }
 
-export function getSupabaseAdminClient(): SupabaseClient {
+export function getSupabaseAdminClient(options?: { timeoutMs?: number }): SupabaseClient {
   const url = getSupabaseUrl();
   const serviceRoleKey = getSupabaseServiceRoleKey();
   if (!url || !serviceRoleKey) {
@@ -58,6 +58,7 @@ export function getSupabaseAdminClient(): SupabaseClient {
       persistSession: false,
       autoRefreshToken: false,
     },
+    ...(options?.timeoutMs ? { global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: AbortSignal.timeout(options.timeoutMs!) }) } } : {}),
   });
 }
 
@@ -138,4 +139,19 @@ export async function deleteMediaObjectFromSupabaseStorage(objectPath: string): 
 export async function deleteMediaFromSupabaseStorage(publicUrl: string): Promise<boolean> {
   const objectPath = extractSupabaseStoragePath(publicUrl);
   return objectPath ? deleteMediaObjectFromSupabaseStorage(objectPath) : false;
+}
+
+/** Idempotent and verified: a missing object is success, never a missing bucket or a permission error. */
+export async function ensureSupabaseMediaAbsent(publicUrl: string): Promise<void> {
+  const objectPath = extractSupabaseStoragePath(publicUrl);
+  if (!objectPath || !isSupabaseStorageConfigured() || getSupabaseStorageBucket() !== DEFAULT_STORAGE_BUCKET) {
+    throw new MediaStorageError("configuration");
+  }
+  const bucket = getSupabaseAdminClient({ timeoutMs: 8000 }).storage.from(getSupabaseStorageBucket());
+  const result = await bucket.remove([objectPath]);
+  if (result.error) throw new MediaStorageError("storage", result.error.status);
+  // Even a successful remove response is not proof that the key is gone.
+  // exists returns false only for a missing key; bucket/permission/transport errors throw.
+  const after = await bucket.exists(objectPath);
+  if (after.data) throw new MediaStorageError("storage");
 }

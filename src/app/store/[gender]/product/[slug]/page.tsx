@@ -6,13 +6,22 @@ import { ProductDetailClient } from "@/components/store/ProductDetailClient";
 
 export const dynamic = "force-dynamic";
 
+// Some runtimes pass encoded path segments through as params instead of decoding them.
+function decodeProductSlug(slug: string): string {
+  try {
+    return decodeURIComponent(slug);
+  } catch {
+    return slug;
+  }
+}
+
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ gender: string; slug: string }>;
 }): Promise<Metadata> {
   const { gender, slug } = await params;
-  const data = await getProductDetailBySlug(gender, slug);
+  const data = await getProductDetailBySlug(gender, decodeProductSlug(slug));
   if (!data) return { title: "المنتج غير موجود" };
 
   return {
@@ -33,7 +42,7 @@ export default async function ProductDetailPage({
 }) {
   const { gender, slug } = await params;
   const [data, settings] = await Promise.all([
-    getProductDetailBySlug(gender, slug),
+    getProductDetailBySlug(gender, decodeProductSlug(slug)),
     getStoreSettings(),
   ]);
   if (!data) notFound();

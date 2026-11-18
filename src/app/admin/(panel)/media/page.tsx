@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Upload, Trash2, Copy, Check, Loader2 } from "lucide-react";
 import { MEDIA_CATEGORY_LABELS } from "@/lib/constants";
 import { ConfirmModal } from "@/components/admin/ConfirmModal";
@@ -12,6 +12,7 @@ interface MediaRow {
   category: string;
   alt_text: string;
   created_at: string;
+  deletion_state?: string;
 }
 
 export default function AdminMediaPage() {
@@ -19,10 +20,14 @@ export default function AdminMediaPage() {
   const [activeCat, setActiveCat] = useState("all");
   const [uploadCat, setUploadCat] = useState("products");
   const [loading, setLoading] = useState(true);
+  const hasLoaded = useRef(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<MediaRow | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const pendingDeletes = useRef(new Set<number>());
+  const revision = useRef(0);
+  const loadSequence = useRef(0);
+  const [deleteError, setDeleteError] = useState("");
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -30,20 +35,27 @@ export default function AdminMediaPage() {
   };
 
   const loadMedia = useCallback(async () => {
-    setLoading(true);
+    const startedRevision = revision.current;
+    const sequence = ++loadSequence.current;
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/media?category=${encodeURIComponent(activeCat)}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch("/api/admin/media?category=all", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items || []);
+        if (sequence === loadSequence.current && startedRevision === revision.current) {
+          setItems((data.items || []).filter((item: MediaRow) => !pendingDeletes.current.has(item.id)));
+        }
+      } else {
+        setDeleteError("تعذر تحميل مكتبة الوسائط.");
       }
+    } catch {
+      setDeleteError("تعذر الاتصال لتحميل مكتبة الوسائط.");
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) { hasLoaded.current = true; setLoading(false); }
     }
-  }, [activeCat]);
+  }, []);
+
+  const visibleItems = activeCat === "all" ? items : items.filter((item) => item.category === activeCat);
 
   useEffect(() => {
     loadMedia();
@@ -56,29 +68,44 @@ export default function AdminMediaPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("category", uploadCat);
-    const res = await fetch("/api/admin/media", { method: "POST", body: fd });
-    const data = await res.json();
-    setUploading(false);
-    e.target.value = "";
-    if (res.ok) {
-      flash(data.message || "تم رفع الصورة بنجاح.");
-      loadMedia();
-    } else {
-      flash(data.error || "تعذر رفع الصورة.");
+    try {
+      const res = await fetch("/api/admin/media", { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok) {
+        if (Number.isSafeInteger(Number(data.id)) && data.url && data.filename) {
+          revision.current += 1;
+          setItems((previous) => [{ id: Number(data.id), filename: data.filename, url: data.url, category: data.category, alt_text: file.name, created_at: new Date().toISOString() }, ...previous]);
+        } else {
+          void loadMedia();
+        }
+        flash(data.message || "تم رفع الصورة بنجاح.");
+      } else {
+        flash(data.error || "تعذر رفع الصورة.");
+      }
+    } catch {
+      flash("تعذر الاتصال بالخادم لرفع الصورة.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
     }
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const res = await fetch(`/api/admin/media?id=${deleteTarget.id}`, {
-      method: "DELETE",
-    });
-    setDeleting(false);
-    setDeleteTarget(null);
-    if (res.ok) {
-      flash("تم حذف الصورة من مكتبة الوسائط.");
-      loadMedia();
+    const target = deleteTarget;
+    if (!target || pendingDeletes.current.has(target.id)) return;
+    pendingDeletes.current.add(target.id); revision.current += 1;
+    setDeleteError(""); setDeleteTarget(null);
+    setItems((previous) => previous.filter((item) => item.id !== target.id));
+    try {
+      const res = await fetch(`/api/admin/media?id=${target.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر تأكيد حذف الصورة.");
+      flash(data.message || "تم حذف الصورة من مكتبة الوسائط.");
+    } catch (error) {
+      setItems((previous) => previous.some((item) => item.id === target.id) ? previous : [target, ...previous].sort((a, b) => b.id - a.id));
+      setDeleteError(error instanceof Error ? error.message : "تعذر تأكيد حذف الصورة. أعد المحاولة للتحقق.");
+    } finally {
+      pendingDeletes.current.delete(target.id); revision.current += 1;
     }
   };
 
@@ -117,6 +144,7 @@ export default function AdminMediaPage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
+              disabled={uploading || loading}
               onChange={handleUpload}
               className="hidden"
             />
@@ -130,6 +158,8 @@ export default function AdminMediaPage() {
           <span>{notice}</span>
         </div>
       )}
+
+      {deleteError && <p role="alert" className="p-3 bg-rose-50 text-rose-800 text-xs">{deleteError}</p>}
 
       {/* Category Filter Tabs */}
       <div className="flex flex-wrap gap-2">
@@ -160,13 +190,13 @@ export default function AdminMediaPage() {
           <Loader2 className="w-5 h-5 animate-spin text-[#B79B6C]" />
           <span>جاري تحميل المكتبة...</span>
         </div>
-      ) : items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="bg-white border border-[#D8C8B5] p-14 text-center text-sm text-[#111111]/60">
           لا توجد صور في هذا التصنيف.
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <div
               key={item.id}
               className="bg-white border border-[#D8C8B5]/80 overflow-hidden flex flex-col"
@@ -184,6 +214,7 @@ export default function AdminMediaPage() {
                   <p className="text-xs font-medium text-[#111111] truncate">
                     {item.alt_text || item.filename}
                   </p>
+                  {item.deletion_state === "pending" && <p className="text-xs text-rose-700">حذف غير مؤكد؛ أعد المحاولة لإكماله.</p>}
                   <span className="text-[10px] text-[#B79B6C]">
                     {MEDIA_CATEGORY_LABELS[item.category] || item.category}
                   </span>
@@ -219,7 +250,6 @@ export default function AdminMediaPage() {
         open={Boolean(deleteTarget)}
         title="تأكيد حذف الصورة"
         message={`هل تريد حذف الصورة "${deleteTarget?.alt_text || deleteTarget?.filename || ""}" من مكتبة الوسائط؟`}
-        loading={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   GripVertical,
@@ -49,6 +49,9 @@ export default function AdminCategoriesPage() {
   const [formImage, setFormImage] = useState("/images/brand-story.jpg");
   const [formVisible, setFormVisible] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const listRevision = useRef(0);
+  const [saveError, setSaveError] = useState("");
   const [mediaOpen, setMediaOpen] = useState(false);
 
   // Delete Modal
@@ -61,21 +64,24 @@ export default function AdminCategoriesPage() {
   };
 
   const loadData = useCallback(async () => {
+    const revision = listRevision.current;
     setLoading(true);
     try {
       const res = await fetch("/api/admin/categories", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setGenders(data.genders || []);
-        setCategories(data.categories || []);
-        if (activeGenderId === 0 && data.genders?.[0]) {
-          setActiveGenderId(data.genders[0].id);
+        if (revision === listRevision.current) setCategories(data.categories || []);
+        if (data.genders?.[0]) {
+          setActiveGenderId((current) => current || data.genders[0].id);
         }
       }
+    } catch {
+      setNotice("تعذر تحميل التصنيفات، يرجى التحقق من الاتصال.");
     } finally {
       setLoading(false);
     }
-  }, [activeGenderId]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -84,6 +90,7 @@ export default function AdminCategoriesPage() {
   const currentList = categories.filter((c) => c.gender_id === activeGenderId);
 
   const openCreate = () => {
+    setSaveError("");
     setEditing(null);
     setFormGenderId(activeGenderId || genders[0]?.id || 1);
     setFormName("");
@@ -94,6 +101,7 @@ export default function AdminCategoriesPage() {
   };
 
   const openEdit = (cat: CategoryRow) => {
+    setSaveError("");
     setEditing(cat);
     setFormGenderId(cat.gender_id);
     setFormName(cat.name);
@@ -105,7 +113,10 @@ export default function AdminCategoriesPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
+    setSaveError("");
     const payload = {
       gender_id: Number(formGenderId),
       name: formName,
@@ -116,17 +127,41 @@ export default function AdminCategoriesPage() {
     const url = editing
       ? `/api/admin/categories/${editing.id}`
       : "/api/admin/categories";
-    const res = await fetch(url, {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch(url, {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSaveError(data.error || `تعذر حفظ التصنيف (${res.status}).`);
+        return;
+      }
+      const gender = genders.find((g) => g.id === payload.gender_id);
+      if (!gender || (!editing && !data.category)) {
+        // The write succeeded, but the response cannot safely populate the list.
+        setModalOpen(false);
+        flash(data.message || "تم حفظ التصنيف بنجاح.");
+        await loadData();
+        return;
+      }
+      listRevision.current += 1;
+      setCategories((previous) => editing
+        ? previous.map((category) => category.id === editing.id
+          ? { ...category, gender_id: payload.gender_id, gender_name: gender!.name,
+              gender_slug: gender!.slug, name: payload.name.trim(), description: payload.description.trim(),
+              image_url: payload.image_url.trim(), is_visible: Number(payload.is_visible) }
+          : category)
+        : [...previous, { ...data.category, gender_name: gender!.name, gender_slug: gender!.slug }]);
+      setActiveGenderId(payload.gender_id);
       setModalOpen(false);
       flash(data.message || "تم حفظ التصنيف بنجاح.");
-      loadData();
+    } catch {
+      setSaveError("تعذر الاتصال بالخادم. تحقق من القائمة قبل إعادة المحاولة للتأكد من عدم حفظ التصنيف.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -326,7 +361,7 @@ export default function AdminCategoriesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="fixed inset-0 bg-[#111111]/60 backdrop-blur-xs"
-            onClick={() => setModalOpen(false)}
+            onClick={() => { if (!savingRef.current) setModalOpen(false); }}
           />
           <form
             onSubmit={handleSave}
@@ -339,6 +374,7 @@ export default function AdminCategoriesPage() {
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
+                disabled={saving}
                 aria-label="إغلاق"
               >
                 <X className="w-5 h-5" />
@@ -418,9 +454,11 @@ export default function AdminCategoriesPage() {
               <span>إظهار التصنيف في واجهة المتجر</span>
             </label>
 
+            {saveError && <p role="alert" className="text-xs text-rose-700">{saveError}</p>}
             <div className="flex justify-end gap-2 pt-3 border-t border-[#D8C8B5]/50">
               <button
                 type="button"
+                disabled={saving}
                 onClick={() => setModalOpen(false)}
                 className="px-5 py-2.5 border border-[#D8C8B5] text-xs font-semibold"
               >

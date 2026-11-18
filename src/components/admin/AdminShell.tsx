@@ -141,6 +141,7 @@ export function AdminShell({
             {user.name}
           </p>
           <p className="text-[11px] text-[#B79B6C] truncate">{user.roleName}</p>
+          <Link href="/admin/profile" onClick={() => setSidebarOpen(false)} className="inline-block mt-2 text-xs underline">معلومات المدير</Link>
         </div>
 
         <div className="flex items-center gap-2">

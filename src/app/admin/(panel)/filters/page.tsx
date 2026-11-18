@@ -41,6 +41,7 @@ const FILTER_TYPE_LABELS: Record<string, string> = {
 export default function AdminFiltersPage() {
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoaded = useRef(false);
   const [notice, setNotice] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const reorderPending = useRef(false);
@@ -57,7 +58,8 @@ export default function AdminFiltersPage() {
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<FilterRow | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const pendingDeletes = useRef(new Set<number>());
+  const filtersRevision = useRef(0);
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -65,14 +67,20 @@ export default function AdminFiltersPage() {
   };
 
   const loadFilters = useCallback(async () => {
-    setLoading(true);
+    const revision = filtersRevision.current;
+    if (!hasLoaded.current) setLoading(true);
     try {
       const res = await fetch("/api/admin/filters", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setFilters(data.filters || []);
+        if (revision === filtersRevision.current) {
+          setFilters((data.filters || []).filter((item: FilterRow) => !pendingDeletes.current.has(item.id)));
+        }
       }
+    } catch {
+      setNotice("تعذر تحميل الفلاتر، يرجى التحقق من الاتصال.");
     } finally {
+      hasLoaded.current = true;
       setLoading(false);
     }
   }, []);
@@ -154,21 +162,30 @@ export default function AdminFiltersPage() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const res = await fetch(`/api/admin/filters/${deleteTarget.id}`, {
-      method: "DELETE",
-    });
-    setDeleting(false);
+    const target = deleteTarget;
+    if (!target || pendingDeletes.current.has(target.id) || reorderPending.current) return;
+    pendingDeletes.current.add(target.id);
+    filtersRevision.current += 1;
     setDeleteTarget(null);
-    if (res.ok) {
-      flash("تم حذف الفلتر بنجاح.");
-      loadFilters();
+    setFilters((previous) => previous.filter((item) => item.id !== target.id));
+    try {
+      const res = await fetch(`/api/admin/filters/${target.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر حذف الفلتر.");
+      flash(data.message || "تم حذف الفلتر بنجاح.");
+    } catch (error) {
+      setFilters((previous) => previous.some((item) => item.id === target.id)
+        ? previous
+        : [...previous, target].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id));
+      flash(error instanceof Error ? error.message : "تعذر حذف الفلتر.");
+    } finally {
+      filtersRevision.current += 1;
+      pendingDeletes.current.delete(target.id);
     }
   };
 
   const handleDrop = async (targetId: number) => {
-    if (reorderPending.current || draggedId === null || draggedId === targetId) return;
+    if (reorderPending.current || pendingDeletes.current.size > 0 || draggedId === null || draggedId === targetId) return;
     const previous = filters;
     const list = [...filters];
     const fromIdx = list.findIndex((f) => f.id === draggedId);
@@ -507,7 +524,6 @@ export default function AdminFiltersPage() {
         open={Boolean(deleteTarget)}
         title="تأكيد حذف الفلتر"
         message={`هل أنت متأكد من حذف الفلتر "${deleteTarget?.name || ""}" وجميع خياراته؟`}
-        loading={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

@@ -81,7 +81,21 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(
-      { id: res.lastInsertRowid, message: "تم إنشاء التصنيف بنجاح." },
+      {
+        id: res.lastInsertRowid,
+        category: {
+          id: res.lastInsertRowid,
+          gender_id: d.gender_id,
+          name: d.name,
+          slug,
+          description: d.description,
+          image_url: d.image_url || "/images/brand-story.jpg",
+          sort_order: Number(maxOrder?.m || 0) + 1,
+          is_visible: d.is_visible ? 1 : 0,
+          product_count: 0,
+        },
+        message: "تم إنشاء التصنيف بنجاح.",
+      },
       { status: 201 }
     );
   } catch (err) {
