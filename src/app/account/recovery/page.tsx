@@ -1,7 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
+import { notFound } from "next/navigation";
+import { CUSTOMER_ACCOUNT_VISIBLE } from "@/lib/customer-account-visibility";
 
 export default function RecoveryPage() {
+  if (!CUSTOMER_ACCOUNT_VISIBLE) notFound();
+  return <RecoveryForm />;
+}
+
+function RecoveryForm() {
   const [tokens, setTokens] = useState<{ accessToken: string; refreshToken: string } | null>(null);
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("يرجى فتح رابط الاستعادة المرسل إلى بريدك.");

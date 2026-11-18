@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useStore } from "./StoreProvider";
 import { formatIQD } from "@/lib/format";
+import { CUSTOMER_ACCOUNT_VISIBLE } from "@/lib/customer-account-visibility";
 import type { CategoryItem, GenderItem } from "@/lib/store-queries";
 
 export function StoreHeader({
@@ -174,14 +175,16 @@ export function StoreHeader({
                 </span>
               </button>
 
-              <Link
-                href={`/store/${genderSlug}/account`}
-                aria-label="حسابي"
-                className="p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
-              >
-                <UserRound className="w-[19px] h-[19px] stroke-[1.7]" />
-                <span className="hidden xl:inline text-xs font-medium">حسابي</span>
-              </Link>
+              {CUSTOMER_ACCOUNT_VISIBLE && (
+                <Link
+                  href={`/store/${genderSlug}/account`}
+                  aria-label="حسابي"
+                  className="p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
+                >
+                  <UserRound className="w-[19px] h-[19px] stroke-[1.7]" />
+                  <span className="hidden xl:inline text-xs font-medium">حسابي</span>
+                </Link>
+              )}
 
               <Link
                 href={`/store/${genderSlug}/wishlist`}
