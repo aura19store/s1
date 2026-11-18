@@ -4,9 +4,9 @@ import { notFound } from "next/navigation";
 import { queryOne } from "@/db";
 import {
   getDynamicFiltersForGender,
-  getGenderBySlug,
   queryStoreProducts,
 } from "@/lib/store-queries";
+import { getRenderGenderBySlug as getGenderBySlug } from "@/lib/store-render-queries";
 import { ProductsExplorer } from "@/components/store/ProductsExplorer";
 
 export const dynamic = "force-dynamic";

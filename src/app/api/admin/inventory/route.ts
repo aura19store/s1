@@ -66,20 +66,21 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  if (parsed.data.low_stock_threshold !== undefined) {
-    await execute(
+  const result = parsed.data.low_stock_threshold !== undefined
+    ? await execute(
       `UPDATE products SET stock_quantity = ?, low_stock_threshold = ?, updated_at = datetime('now') WHERE id = ?`,
       parsed.data.stock_quantity,
       parsed.data.low_stock_threshold,
       parsed.data.productId
-    );
-  } else {
-    await execute(
+    )
+    : await execute(
       `UPDATE products SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`,
       parsed.data.stock_quantity,
       parsed.data.productId
     );
-  }
 
+  if (result.changes === 0) {
+    return NextResponse.json({ error: "المنتج غير موجود." }, { status: 404 });
+  }
   return NextResponse.json({ message: "تم تحديث كمية المخزون بنجاح." });
 }

@@ -1,11 +1,11 @@
 import React from "react";
 import { notFound } from "next/navigation";
 import {
-  getCategoriesByGender,
-  getGenderBySlug,
-  getGenders,
-  getStoreSettings,
-} from "@/lib/store-queries";
+  getRenderCategoriesByGender as getCategoriesByGender,
+  getRenderGenderBySlug as getGenderBySlug,
+  getRenderGenders as getGenders,
+  getRenderStoreSettings as getStoreSettings,
+} from "@/lib/store-render-queries";
 import { StoreProvider } from "@/components/store/StoreProvider";
 import { StoreHeader } from "@/components/store/StoreHeader";
 import { CartDrawer } from "@/components/store/CartDrawer";

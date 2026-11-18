@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { Check, AlertCircle, X } from "lucide-react";
+import { cartWithoutPendingItems } from "@/lib/cart-visible";
 
 const GUEST_TOKEN_STORAGE_KEY = "aura_guest_token";
 
@@ -122,12 +123,20 @@ export function StoreProvider({
   children: React.ReactNode;
 }) {
   const [cart, setCart] = useState<CartState>(emptyCart);
+  const pendingRemovalIds = useRef(new Set<number>());
+  const [pendingRemovals, setPendingRemovals] = useState<ReadonlySet<number>>(new Set());
   const [wishlistIds, setWishlistIds] = useState<number[]>([]);
   const [isCartOpen, setCartOpen] = useState(false);
   const [isSearchOpen, setSearchOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const cartRevision = useRef(0);
   const cartMutationQueue = useRef<Promise<void>>(Promise.resolve());
+  const deleteGroup = useRef<{
+    base: Promise<void>;
+    barrier: Promise<void>;
+    resolve: () => void;
+    count: number;
+  } | null>(null);
 
   const queueCartMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
     cartRevision.current += 1;
@@ -254,25 +263,58 @@ export function StoreProvider({
   );
 
   const removeCartItem = useCallback(
-    (itemId: number) => queueCartMutation(async () => {
-      try {
-        const res = await fetch(`/api/store/cart?itemId=${itemId}`, {
-          method: "DELETE",
-          headers: getGuestTokenHeaders(),
-        });
-        const data = await res.json();
-        if (res.ok && data.cart) {
-          if (data.cart.guestToken) saveStoredGuestToken(data.cart.guestToken);
-          setCart(data.cart);
-          showToast("تمت إزالة المنتج من السلة.");
-        } else {
-          showToast(data.error || "تعذر إزالة المنتج.", "error");
-        }
-      } catch {
-        showToast("تعذر إزالة المنتج.", "error");
+    (itemId: number) => {
+      if (pendingRemovalIds.current.has(itemId)) return Promise.resolve();
+      pendingRemovalIds.current.add(itemId);
+      setPendingRemovals(new Set(pendingRemovalIds.current));
+      let group = deleteGroup.current;
+      if (!group || cartMutationQueue.current !== group.barrier) {
+        const base = cartMutationQueue.current;
+        let resolve!: () => void;
+        const barrier = new Promise<void>((done) => { resolve = done; });
+        group = { base, barrier, resolve, count: 0 };
+        deleteGroup.current = group;
+        cartMutationQueue.current = barrier;
       }
-    }),
-    [queueCartMutation, showToast]
+      const currentGroup = group;
+      currentGroup.count += 1;
+      cartRevision.current += 1;
+      return (async () => {
+        await currentGroup.base;
+        try {
+          const res = await fetch(`/api/store/cart?itemId=${itemId}`, {
+            method: "DELETE",
+            headers: getGuestTokenHeaders(),
+          });
+          const data = await res.json();
+          if (res.ok && data.cart) {
+            if (data.cart.guestToken) saveStoredGuestToken(data.cart.guestToken);
+            // Concurrent responses can contain stale snapshots. Apply only this
+            // confirmed deletion and reconcile after the whole group settles.
+            setCart((previous) => cartWithoutPendingItems(previous, new Set([itemId])));
+            showToast("تمت إزالة المنتج من السلة.");
+          } else {
+            showToast(data.error || "تعذر إزالة المنتج.", "error");
+          }
+        } catch {
+          showToast("تعذر إزالة المنتج.", "error");
+        } finally {
+          cartRevision.current += 1;
+          pendingRemovalIds.current.delete(itemId);
+          setPendingRemovals(new Set(pendingRemovalIds.current));
+          currentGroup.count -= 1;
+          if (currentGroup.count === 0) {
+            if (deleteGroup.current === currentGroup) deleteGroup.current = null;
+            try {
+              await refreshCart();
+            } finally {
+              currentGroup.resolve();
+            }
+          }
+        }
+      })();
+    },
+    [refreshCart, showToast]
   );
 
   const toggleWishlist = useCallback(
@@ -307,7 +349,7 @@ export function StoreProvider({
     <StoreContext.Provider
       value={{
         genderSlug,
-        cart,
+        cart: cartWithoutPendingItems(cart, pendingRemovals),
         wishlistIds,
         isCartOpen,
         isSearchOpen,

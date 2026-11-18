@@ -4,12 +4,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import {
-  getCategoriesByGender,
-  getGenderBySlug,
   getHomepageSections,
-  getStoreSettings,
   queryStoreProducts,
 } from "@/lib/store-queries";
+import {
+  getRenderCategoriesByGender as getCategoriesByGender,
+  getRenderGenderBySlug as getGenderBySlug,
+  getRenderStoreSettings as getStoreSettings,
+} from "@/lib/store-render-queries";
 import { ProductCard } from "@/components/store/ProductCard";
 
 export const dynamic = "force-dynamic";

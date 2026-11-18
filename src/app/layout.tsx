@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { getStoreSettings } from "@/lib/store-queries";
+import { getRenderStoreSettings as getStoreSettings } from "@/lib/store-render-queries";
 
 export const dynamic = "force-dynamic";
 

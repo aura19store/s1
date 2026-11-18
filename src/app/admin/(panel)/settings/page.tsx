@@ -20,27 +20,35 @@ export default function AdminSettingsPage() {
         if (data.error) setError(data.error);
         else setSettings(data.settings);
       })
+      .catch(() => setError("تعذر الاتصال لتحميل الإعدادات."))
       .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings) return;
+    if (saving) return;
     setSaving(true);
     setError("");
-    const res = await fetch("/api/admin/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      setError(data.error || "تعذر حفظ الإعدادات.");
-    } else {
-      setSettings(data.settings);
-      setNotice(data.message || "تم حفظ إعدادات المتجر بنجاح.");
-      setTimeout(() => setNotice(""), 3200);
+    setNotice("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "تعذر حفظ الإعدادات.");
+      } else {
+        setSettings(data.settings);
+        setNotice(data.message || "تم حفظ إعدادات المتجر بنجاح.");
+        setTimeout(() => setNotice(""), 3200);
+      }
+    } catch {
+      setError("تعذر الاتصال لحفظ الإعدادات.");
+    } finally {
+      setSaving(false);
     }
   };
 

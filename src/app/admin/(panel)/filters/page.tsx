@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   GripVertical,
@@ -43,6 +43,8 @@ export default function AdminFiltersPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  const reorderPending = useRef(false);
+  const [reorderError, setReorderError] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FilterRow | null>(null);
@@ -166,7 +168,8 @@ export default function AdminFiltersPage() {
   };
 
   const handleDrop = async (targetId: number) => {
-    if (draggedId === null || draggedId === targetId) return;
+    if (reorderPending.current || draggedId === null || draggedId === targetId) return;
+    const previous = filters;
     const list = [...filters];
     const fromIdx = list.findIndex((f) => f.id === draggedId);
     const toIdx = list.findIndex((f) => f.id === targetId);
@@ -175,12 +178,28 @@ export default function AdminFiltersPage() {
     list.splice(toIdx, 0, moved);
     setDraggedId(null);
     setFilters(list);
-    await fetch("/api/admin/filters/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedIds: list.map((f) => f.id) }),
-    });
-    flash("تم تحديث ترتيب الفلاتر.");
+    reorderPending.current = true;
+    setNotice("");
+    setReorderError("");
+    try {
+      const res = await fetch("/api/admin/filters/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: list.map((f) => f.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFilters(previous);
+        setReorderError(data.error || "تعذر حفظ ترتيب الفلاتر.");
+      } else {
+        flash(data.message || "تم تحديث ترتيب الفلاتر.");
+      }
+    } catch {
+      setFilters(previous);
+      setReorderError("تعذر الاتصال لحفظ ترتيب الفلاتر.");
+    } finally {
+      reorderPending.current = false;
+    }
   };
 
   return (
@@ -204,6 +223,7 @@ export default function AdminFiltersPage() {
         </button>
       </div>
 
+      {reorderError && <p role="alert" className="p-4 bg-rose-50 border border-rose-200 text-rose-800 text-sm">{reorderError}</p>}
       {notice && (
         <div className="flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium">
           <Check className="w-4 h-4" />

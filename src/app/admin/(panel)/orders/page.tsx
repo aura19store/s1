@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Search, Eye, X, Check, Loader2 } from "lucide-react";
+import { Search, Eye, X, Check, Loader2, Download } from "lucide-react";
 import { formatArabicDateTime, formatIQD } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from "@/lib/constants";
 
@@ -57,6 +57,35 @@ export default function AdminOrdersPage() {
     items: OrderItemDetail[];
   } | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
+  const exportOrderPdf = async (id: number) => {
+    if (exporting) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const [orderRes, fontRes, pdf] = await Promise.all([
+        fetch(`/api/admin/orders/${id}`, { cache: "no-store" }),
+        fetch("/fonts/IBMPlexSansArabic-Regular.ttf"),
+        import("@/lib/order-pdf"),
+      ]);
+      if (!orderRes.ok) {
+        const body = await orderRes.json().catch(() => ({}));
+        throw new Error(body.error || "تعذر تحميل تفاصيل الطلب.");
+      }
+      if (!fontRes.ok) throw new Error("تعذر تحميل خط PDF العربي.");
+      const { order, items } = await orderRes.json();
+      if (!order || !Array.isArray(items)) throw new Error("بيانات الطلب غير مكتملة.");
+      const doc = await pdf.createOrderPdf(order, items, new Uint8Array(await fontRes.arrayBuffer()));
+      const safeName = String(order.order_number).replace(/[^A-Za-z0-9_-]/g, "_");
+      doc.save(`AURA-${safeName || "order"}.pdf`);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -289,6 +318,12 @@ export default function AdminOrdersPage() {
                 )}
               </div>
             </div>
+
+            <button type="button" disabled={exporting} onClick={() => void exportOrderPdf(selectedOrder.order.id)} className="inline-flex items-center gap-2 border border-[#111111] px-4 py-2 text-xs disabled:opacity-50">
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {exporting ? "جاري إنشاء PDF..." : "تنزيل تفاصيل الطلب PDF"}
+            </button>
+            {exportError && <p role="alert" className="text-sm text-rose-700">{exportError}</p>}
 
             {/* Status Update */}
             <div className="flex items-center justify-between gap-3 bg-[#EFEAE2]/60 p-3.5 border border-[#D8C8B5]/60">

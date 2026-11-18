@@ -10,6 +10,15 @@ import {
   buildWhatsAppUrl,
 } from "./ContactIcons";
 
+function safeSocialUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function StoreFooter({
   settings,
   genderSlug = "men",
@@ -23,6 +32,8 @@ export function StoreFooter({
   const whatsappHref = buildWhatsAppUrl(phoneDisplay);
   const telHref = buildTelHref(phoneDisplay);
   const mailHref = `mailto:${emailDisplay}`;
+  const instagramHref = safeSocialUrl(settings.instagram_url);
+  const tiktokHref = safeSocialUrl(settings.tiktok_url);
 
   return (
     <footer className="bg-[#111111] text-[#F7F4EF] border-t border-[#B79B6C]/20">
@@ -159,6 +170,13 @@ export function StoreFooter({
                 <span>{locationDisplay}</span>
               </li>
             </ul>
+
+            {(instagramHref || tiktokHref) && (
+              <div className="mt-4 flex flex-wrap gap-4 text-sm text-[#F7F4EF]/85">
+                {instagramHref && <a href={instagramHref} target="_blank" rel="noopener noreferrer" className="hover:text-[#B79B6C] transition">إنستغرام</a>}
+                {tiktokHref && <a href={tiktokHref} target="_blank" rel="noopener noreferrer" className="hover:text-[#B79B6C] transition">تيك توك</a>}
+              </div>
+            )}
 
             {/* Elegant Direct Contact Icons: WhatsApp + Email */}
             <div className="mt-5 flex items-center gap-3">

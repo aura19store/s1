@@ -29,15 +29,18 @@ async function main() {
  await pool.query(migration); await pool.query(migration);
  console.log('PASS PostgreSQL 18: original 0001, 0002 and repeated 0002');
  const names=['customer_accounts','customer_account_orders','aura_reward_settings','aura_reward_definitions','aura_reward_grants','aura_reward_grant_orders','aura_reward_credit_uses','aura_reward_credit_restorations','aura_reward_credit_review_incidents','aura_reward_incidents','aura_reward_reset_orders','aura_reward_order_exclusions'];
- const rels=await pool.query(`SELECT relname,relrowsecurity FROM pg_class WHERE relkind='r' AND relname=ANY($1::text[])`,[names]);assert.equal(rels.rowCount,12);
- assert(rels.rows.every(r=>r.relrowsecurity===false));
+ const rels=await pool.query(`SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname=ANY($1::text[])`,[names]);assert.equal(rels.rowCount,12);
+ assert(rels.rows.every(r=>r.relrowsecurity===true && r.relforcerowsecurity===false));
+ const policies=await pool.query(`SELECT tablename,permissive,roles,cmd,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename=ANY($1::text[]) AND policyname='aura_deny_browser_roles'`,[names]);
+ assert.equal(policies.rowCount,12);
+ assert(policies.rows.every(p=>p.permissive==='RESTRICTIVE' && p.cmd==='ALL' && p.qual==='false' && p.with_check==='false' && p.roles.includes('anon') && p.roles.includes('authenticated')));
  for(const name of names) for(const role of ['anon','authenticated']) {
   const r=await pool.query(`SELECT has_table_privilege($1::text,format('public.%I',$2::text),'SELECT,INSERT,UPDATE,DELETE') AS allowed`,[role,name]);assert.equal(r.rows[0].allowed,false);
   if(name!=='aura_reward_order_exclusions') { const sq=await pool.query(`SELECT pg_get_serial_sequence(format('public.%I',$1::text),'id') seq`,[name]); if(sq.rows[0].seq) { const p=await pool.query(`SELECT has_sequence_privilege($1::text,$2::text,'USAGE,SELECT,UPDATE') allowed`,[role,sq.rows[0].seq]);assert.equal(p.rows[0].allowed,false); } }
  }
  const fk=await pool.query(`SELECT count(*)::int c FROM pg_constraint WHERE contype='f' AND conrelid::regclass::text = ANY($1::text[])`,[names]);assert.equal(fk.rows[0].c,15);
  const indexes=await pool.query(`SELECT indexname,indexdef FROM pg_indexes WHERE tablename = ANY($1::text[])`,[names]);assert(indexes.rows.some(r=>r.indexname==='idx_aura_reward_one_active_grant_per_order' && r.indexdef.includes('UNIQUE') && r.indexdef.includes('WHERE')));
- console.log('PASS 12 tables, 15 FKs, indexes, public-role table and sequence grants; RLS remains disabled');
+ console.log('PASS 12 tables, 15 FKs, indexes, public-role table and sequence grants; RLS enabled with restrictive policies');
  await pool.query(`INSERT INTO orders (id,order_number,customer_name,customer_phone,governorate,city,address) VALUES (100,'AURA-2026-1001','Test','07000000000','Test','Test','Test')`);
  const insert=()=>transaction(async (_c,tx)=>insertOrderWithUniqueNumber(tx,'postgres',async (id,num)=>(await tx.execute(`INSERT INTO orders(id,order_number,customer_name,customer_phone,governorate,city,address) VALUES(?,?,'Test','07000000000','Test','Test','Test') ON CONFLICT (order_number) DO NOTHING`,id,num)).changes));
  const numbers=await Promise.all([insert(),insert()]);assert.notEqual(numbers[0].orderNumber,numbers[1].orderNumber);assert(numbers.every(n=>n.orderNumber!=='AURA-2026-1001'));

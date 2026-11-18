@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   GripVertical,
   Eye,
@@ -51,6 +51,8 @@ export default function AdminHomepageBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  const reorderPending = useRef(false);
+  const [reorderError, setReorderError] = useState("");
 
   // Edit Section Modal
   const [editing, setEditing] = useState<SectionRow | null>(null);
@@ -139,7 +141,8 @@ export default function AdminHomepageBuilderPage() {
   };
 
   const handleDrop = async (targetId: number) => {
-    if (draggedId === null || draggedId === targetId) return;
+    if (reorderPending.current || draggedId === null || draggedId === targetId) return;
+    const previous = sections;
     const list = [...sections];
     const fromIdx = list.findIndex((s) => s.id === draggedId);
     const toIdx = list.findIndex((s) => s.id === targetId);
@@ -148,12 +151,28 @@ export default function AdminHomepageBuilderPage() {
     list.splice(toIdx, 0, moved);
     setDraggedId(null);
     setSections(list);
-    await fetch("/api/admin/homepage/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedIds: list.map((s) => s.id) }),
-    });
-    flash("تم تحديث ترتيب أقسام الصفحة الرئيسية بنجاح.");
+    reorderPending.current = true;
+    setNotice("");
+    setReorderError("");
+    try {
+      const res = await fetch("/api/admin/homepage/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: list.map((s) => s.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSections(previous);
+        setReorderError(data.error || "تعذر حفظ ترتيب أقسام الصفحة الرئيسية.");
+      } else {
+        flash(data.message || "تم تحديث ترتيب أقسام الصفحة الرئيسية بنجاح.");
+      }
+    } catch {
+      setSections(previous);
+      setReorderError("تعذر الاتصال لحفظ ترتيب أقسام الصفحة الرئيسية.");
+    } finally {
+      reorderPending.current = false;
+    }
   };
 
   return (
@@ -167,6 +186,7 @@ export default function AdminHomepageBuilderPage() {
         </p>
       </div>
 
+      {reorderError && <p role="alert" className="p-4 bg-rose-50 border border-rose-200 text-rose-800 text-sm">{reorderError}</p>}
       {notice && (
         <div className="flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium">
           <Check className="w-4 h-4" />

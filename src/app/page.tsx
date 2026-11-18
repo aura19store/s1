@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getGenders, getStoreSettings } from "@/lib/store-queries";
+import { getRenderGenders as getGenders, getRenderStoreSettings as getStoreSettings } from "@/lib/store-render-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -12,30 +12,30 @@ export default async function EntryPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-[#111111] text-[#F7F4EF] flex flex-col justify-between overflow-x-hidden">
+    <main className="min-h-screen bg-gradient-to-b from-[#F7F4EF] via-[#EFE7DA] to-[#E4D6C3] text-[#111111] flex flex-col justify-between overflow-x-hidden">
       {/* Top Luxury Brand Arrival Header */}
       <section className="pt-10 pb-8 sm:pt-14 sm:pb-10 px-4 text-center relative z-10 animate-aura-fade-up">
         <div className="max-w-3xl mx-auto space-y-3">
-          <div className="inline-flex items-center gap-3 text-[11px] text-[#B79B6C] tracking-[0.2em]">
+          <div className="inline-flex items-center gap-3 text-[11px] text-[#705631] tracking-[0.2em]">
             <span className="w-8 h-[1px] bg-[#B79B6C]/60" />
             <span>دار الإكسسوارات الفاخرة</span>
             <span className="w-8 h-[1px] bg-[#B79B6C]/60" />
           </div>
 
-          <h1 className="font-brand text-5xl sm:text-7xl font-medium tracking-[0.3em] text-[#F7F4EF]">
+          <h1 className="font-brand text-5xl sm:text-7xl font-medium tracking-[0.3em] text-[#111111]">
             {settings.store_name}
           </h1>
 
-          <p className="font-editorial text-2xl sm:text-3xl text-[#F7F4EF] pt-1">
+          <p className="font-editorial text-2xl sm:text-3xl text-[#111111] pt-1">
             {settings.tagline}
           </p>
 
-          <p className="text-sm sm:text-base text-[#D8C8B5]/85 font-light">
+          <p className="text-sm sm:text-base text-[#4A4035] font-light">
             {settings.secondary_tagline}
           </p>
 
           <div className="pt-4">
-            <span className="inline-block px-5 py-1.5 border border-[#B79B6C]/45 text-xs sm:text-sm text-[#B79B6C] tracking-wider">
+            <span className="inline-block px-5 py-1.5 border border-[#8A704D]/60 text-xs sm:text-sm text-[#705631] tracking-wider">
               اختر هالتك
             </span>
           </div>
@@ -92,7 +92,7 @@ export default async function EntryPage() {
       </section>
 
       {/* Subtle Minimal Footer Strip */}
-      <footer className="py-5 px-4 text-center text-xs text-[#D8C8B5]/55 border-t border-[#F7F4EF]/10">
+      <footer className="py-5 px-4 text-center text-xs text-[#5C5144] border-t border-[#B79B6C]/30">
         © 2026 {settings.store_name}. جميع الحقوق محفوظة • العراق
       </footer>
     </main>
