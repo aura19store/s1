@@ -22,6 +22,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { AdminUser } from "@/lib/auth";
+import { AdminIdentity } from "./AdminIdentity";
 
 interface NavItem {
   href: string;
@@ -56,6 +57,7 @@ export function AdminShell({
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [identity, setIdentity] = useState(user);
 
   const visibleNav = NAV_ITEMS.filter(
     (item) =>
@@ -138,7 +140,7 @@ export function AdminShell({
       <div className="p-4 border-t border-[#F7F4EF]/10 space-y-3">
         <div className="px-2">
           <p className="text-xs font-semibold text-[#F7F4EF] truncate">
-            {user.name}
+            {identity.name}
           </p>
           <p className="text-[11px] text-[#B79B6C] truncate">{user.roleName}</p>
           <Link href="/admin/profile" onClick={() => setSidebarOpen(false)} className="inline-block mt-2 text-xs underline">معلومات المدير</Link>
@@ -168,6 +170,7 @@ export function AdminShell({
   );
 
   return (
+    <AdminIdentity.Provider value={{ user: identity, update: value => setIdentity(previous => ({ ...previous, ...value })) }}>
     <div className="min-h-screen bg-[#F7F4EF] text-[#111111] flex">
       {/* Desktop Fixed Sidebar (RTL Right Side) */}
       <aside className="hidden lg:block w-64 shrink-0 sticky top-0 h-screen">
@@ -210,7 +213,7 @@ export function AdminShell({
             <span className="hidden sm:inline-block px-3 py-1 bg-[#EFEAE2] text-[#111111] font-medium">
               {user.roleName}
             </span>
-            <span className="text-[#111111]/75 font-medium">{user.name}</span>
+            <span className="text-[#111111]/75 font-medium">{identity.name}</span>
           </div>
         </header>
 
@@ -241,5 +244,6 @@ export function AdminShell({
         </main>
       </div>
     </div>
+    </AdminIdentity.Provider>
   );
 }

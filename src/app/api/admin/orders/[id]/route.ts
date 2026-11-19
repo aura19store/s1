@@ -86,7 +86,7 @@ export async function PATCH(
       `SELECT status FROM orders WHERE id = ?${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`,
       orderId
     );
-    if (!locked) throw new Error("Order no longer exists");
+    if (!locked) return { code: 404, status: "", error: "الطلب غير موجود." };
     const operationId = parsed.data.operation_id;
     if (operationId) {
       await tx.execute(
@@ -168,4 +168,44 @@ export async function PATCH(
   });
   if (result.code !== 200) return NextResponse.json({ error: result.error, status: result.status }, { status: result.code });
   return NextResponse.json({ message: "تم تحديث حالة الطلب بنجاح.", status: result.status });
+}
+
+// Only cancelled orders are eligible: their stock has already been restored.
+// Database RESTRICT foreign keys protect reward/credit history from deletion.
+export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdminApi("orders");
+  if ("error" in auth) return auth.error;
+  const id = Number((await context.params).id);
+  if (!Number.isSafeInteger(id) || id < 1) return NextResponse.json({ error: "معرّف الطلب غير صالح." }, { status: 400 });
+  try {
+    const result = await runTransaction(async tx => {
+      const order = await tx.queryOne<{ status: string; customer_id: number | null }>(`SELECT status, customer_id FROM orders WHERE id = ?${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`, id);
+      if (!order) return 404;
+      if (order.status !== "cancelled") return 409;
+      // Checkout updates this same customer row before inserting an order. Lock it
+      // first so the aggregate recalculation cannot race a concurrent checkout.
+      if (order.customer_id && getDatabaseDriver() === "postgres") {
+        await tx.queryOne(`SELECT id FROM customers WHERE id = ? FOR UPDATE`, order.customer_id);
+      }
+      const deleted = await tx.execute(`DELETE FROM orders WHERE id = ? AND status = ?`, id, "cancelled");
+      if (deleted.changes !== 1) return 409;
+      if (order.customer_id) {
+        await tx.execute(`UPDATE customers SET
+          orders_count = (SELECT COUNT(*) FROM orders WHERE customer_id = ?),
+          total_spent_iqd = (SELECT COALESCE(SUM(total_iqd), 0) FROM orders WHERE customer_id = ?),
+          last_order_at = (SELECT MAX(created_at) FROM orders WHERE customer_id = ?)
+          WHERE id = ?`, order.customer_id, order.customer_id, order.customer_id, order.customer_id);
+      }
+      return 200;
+    });
+    if (result === 404) return NextResponse.json({ error: "الطلب غير موجود." }, { status: 404 });
+    if (result === 409) return NextResponse.json({ error: "يمكن حذف الطلب الملغى فقط." }, { status: 409 });
+    return NextResponse.json({ message: "تم حذف الطلب." });
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code === "23503" || code === "23001" || code === "SQLITE_CONSTRAINT_FOREIGNKEY" || (error instanceof Error && error.message.includes("FOREIGN KEY constraint failed"))) {
+      return NextResponse.json({ error: "لا يمكن حذف طلب مرتبط بسجل مكافآت أو رصيد." }, { status: 409 });
+    }
+    return NextResponse.json({ error: "تعذر تأكيد حذف الطلب. تحقق قبل إعادة المحاولة." }, { status: 503 });
+  }
 }

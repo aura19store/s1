@@ -5,6 +5,7 @@ import { Plus, Edit3, Trash2, Shield, Check, X, Loader2, AlertCircle } from "luc
 import { PERMISSION_LABELS } from "@/lib/constants";
 import { formatArabicDate } from "@/lib/format";
 import { ConfirmModal } from "@/components/admin/ConfirmModal";
+import { useAdminIdentity } from "@/components/admin/AdminIdentity";
 
 interface UserRow {
   id: number;
@@ -26,6 +27,7 @@ interface RoleRow {
 }
 
 export default function AdminUsersPage() {
+  const identity = useAdminIdentity();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,6 +130,7 @@ export default function AdminUsersPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setFormError(data.error || "تعذر حفظ بيانات المستخدم."); return; }
+      if (editing && editing.id === identity?.user.id) identity.update({ name: name.trim(), email: email.trim() });
       setModalOpen(false);
       setPassword(""); setCurrentPassword("");
       flash(data.message || "تم حفظ المستخدم بنجاح.");

@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       `SELECT COALESCE(MAX(sort_order), 0) as m FROM attributes`
     );
 
-    const id = await runTransaction(async (tx) => {
+    const { id, filter, values } = await runTransaction(async (tx) => {
       const res = await tx.execute(
         `INSERT INTO attributes (slug, name, type, sort_order, is_visible, is_filterable)
          VALUES (?, ?, ?, ?, ?, 1)`,
@@ -109,11 +109,12 @@ export async function POST(request: NextRequest) {
           idx + 1
         );
       }
-      return attrId;
+      const filter = await tx.queryOne<Record<string, unknown>>(`SELECT * FROM attributes WHERE id = ?`, attrId);
+      const values = await tx.queryAll(`SELECT av.*, 0 AS usage_count FROM attribute_values av WHERE attribute_id = ? ORDER BY sort_order, id`, attrId);
+      return { id: attrId, filter, values };
     });
-
     return NextResponse.json(
-      { id, message: "تمت إضافة الفلتر وخياراته بنجاح." },
+      { id, filter: { ...filter, values }, message: "تمت إضافة الفلتر وخياراته بنجاح." },
       { status: 201 }
     );
   } catch (err) {

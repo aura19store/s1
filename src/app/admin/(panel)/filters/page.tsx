@@ -56,6 +56,8 @@ export default function AdminFiltersPage() {
   const [newOptionText, setNewOptionText] = useState("");
   const [newOptionHex, setNewOptionHex] = useState("#B79B6C");
   const [saving, setSaving] = useState(false);
+  const savePending = useRef(false);
+  const pendingChanges = useRef(new Set<number>());
 
   const [deleteTarget, setDeleteTarget] = useState<FilterRow | null>(null);
   const pendingDeletes = useRef(new Set<number>());
@@ -123,47 +125,43 @@ export default function AdminFiltersPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-    const payload = {
-      name: formName,
-      type: formType,
-      is_visible: formVisible,
-      values: formValues.map((v) => ({
-        id: v.id,
-        value: v.value,
-        color_hex: formType === "color" ? v.color_hex : "",
-      })),
-    };
-    const url = editing ? `/api/admin/filters/${editing.id}` : "/api/admin/filters";
-    const res = await fetch(url, {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (res.ok) {
-      setModalOpen(false);
-      flash(data.message || "تم حفظ الفلتر بنجاح.");
-      loadFilters();
-    }
+    if (savePending.current || reorderPending.current || pendingDeletes.current.size || (editing && pendingChanges.current.has(editing.id))) return;
+    savePending.current = true; setSaving(true); setNotice("");
+    if (editing) pendingChanges.current.add(editing.id);
+    const payload = { name: formName, type: formType, is_visible: formVisible,
+      values: formValues.map(v => ({ id: v.id, value: v.value, color_hex: formType === "color" ? v.color_hex : "" })) };
+    try {
+      const res = await fetch(editing ? `/api/admin/filters/${editing.id}` : "/api/admin/filters", {
+        method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.filter?.id) throw new Error(data.error || "تعذر تأكيد حفظ الفلتر.");
+      filtersRevision.current += 1;
+      setFilters(list => [...list.filter(item => item.id !== Number(data.filter.id)), data.filter].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id));
+      setModalOpen(false); flash(data.message || "تم حفظ الفلتر بنجاح.");
+    } catch (error) { flash(error instanceof Error ? error.message : "تعذر الاتصال لحفظ الفلتر."); }
+    finally { if (editing) pendingChanges.current.delete(editing.id); savePending.current = false; setSaving(false); }
   };
 
   const toggleVisible = async (f: FilterRow) => {
-    const res = await fetch(`/api/admin/filters/${f.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_visible: !f.is_visible }),
-    });
-    if (res.ok) {
+    if (pendingChanges.current.has(f.id) || pendingDeletes.current.has(f.id) || reorderPending.current || savePending.current) return;
+    pendingChanges.current.add(f.id); filtersRevision.current += 1;
+    setFilters(list => list.map(item => item.id === f.id ? { ...item, is_visible: f.is_visible ? 0 : 1 } : item));
+    try {
+      const res = await fetch(`/api/admin/filters/${f.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_visible: !f.is_visible }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر تغيير ظهور الفلتر.");
+      if (data.filter?.id) setFilters(list => list.map(item => item.id === f.id ? data.filter : item));
       flash(f.is_visible ? "تم إخفاء الفلتر." : "تم إظهار الفلتر.");
-      loadFilters();
-    }
+    } catch (error) {
+      setFilters(list => list.map(item => item.id === f.id ? f : item));
+      flash(error instanceof Error ? error.message : "تعذر تأكيد التغيير.");
+    } finally { filtersRevision.current += 1; pendingChanges.current.delete(f.id); }
   };
 
   const confirmDelete = async () => {
     const target = deleteTarget;
-    if (!target || pendingDeletes.current.has(target.id) || reorderPending.current) return;
+    if (!target || pendingDeletes.current.has(target.id) || pendingChanges.current.has(target.id) || reorderPending.current || savePending.current) return;
     pendingDeletes.current.add(target.id);
     filtersRevision.current += 1;
     setDeleteTarget(null);
@@ -185,7 +183,7 @@ export default function AdminFiltersPage() {
   };
 
   const handleDrop = async (targetId: number) => {
-    if (reorderPending.current || pendingDeletes.current.size > 0 || draggedId === null || draggedId === targetId) return;
+    if (reorderPending.current || pendingDeletes.current.size > 0 || pendingChanges.current.size > 0 || savePending.current || draggedId === null || draggedId === targetId) return;
     const previous = filters;
     const list = [...filters];
     const fromIdx = list.findIndex((f) => f.id === draggedId);

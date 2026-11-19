@@ -47,7 +47,7 @@ export async function PUT(
     }
 
     const d = parsed.data;
-    await runTransaction(async (tx) => {
+    const { filter, values } = await runTransaction(async (tx) => {
       const fields: string[] = [];
       const params: (string | number)[] = [];
       if (d.name !== undefined) {
@@ -111,9 +111,12 @@ export async function PUT(
           );
         }
       }
+      const filter = await tx.queryOne<Record<string, unknown>>(`SELECT * FROM attributes WHERE id = ?`, attrId);
+      const values = await tx.queryAll(`SELECT av.*, (SELECT COUNT(*) FROM product_attribute_values pav WHERE pav.attribute_value_id = av.id) AS usage_count FROM attribute_values av WHERE attribute_id = ? ORDER BY av.sort_order, av.id`, attrId);
+      return { filter, values };
     });
 
-    return NextResponse.json({ message: "تم تحديث الفلتر بنجاح." });
+    return NextResponse.json({ filter: { ...filter, values }, message: "تم تحديث الفلتر بنجاح." });
   } catch (err) {
     console.error("Update filter error:", err);
     return NextResponse.json(

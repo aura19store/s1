@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -46,9 +46,17 @@ export default function AdminProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AdminProductRow | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const pending = useRef(new Set<number>());
+  const revision = useRef(0);
+  const sequence = useRef(0);
+  const reloadNeeded = useRef(false);
+  const loadLatest = useRef<() => Promise<void>>(async () => {});
+  const [pendingIds, setPendingIds] = useState(new Set<number>());
+  const [error, setError] = useState("");
 
   const loadProducts = useCallback(async () => {
+    const request = ++sequence.current;
+    const startRevision = revision.current;
     setLoading(true);
     const sp = new URLSearchParams();
     if (search.trim()) sp.set("q", search.trim());
@@ -62,14 +70,25 @@ export default function AdminProductsPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setProducts(data.products || []);
-        setGenders(data.genders || []);
-        setCategories(data.categories || []);
+        if (request === sequence.current) {
+          if (startRevision === revision.current && pending.current.size === 0) {
+            setProducts(data.products || []);
+            setGenders(data.genders || []);
+            setCategories(data.categories || []);
+          } else if (pending.current.size) {
+            reloadNeeded.current = true;
+          } else {
+            void loadLatest.current();
+          }
+        }
       }
+    } catch {
+      if (request === sequence.current) setError("تعذر تحميل المنتجات.");
     } finally {
-      setLoading(false);
+      if (request === sequence.current) setLoading(false);
     }
   }, [search, genderFilter, categoryFilter, statusFilter]);
+  loadLatest.current = loadProducts;
 
   useEffect(() => {
     loadProducts();
@@ -80,47 +99,63 @@ export default function AdminProductsPage() {
     setTimeout(() => setNotice(""), 3200);
   };
 
+  const begin = (id: number) => {
+    if (pending.current.has(id)) return false;
+    pending.current.add(id); revision.current += 1; setPendingIds(new Set(pending.current)); setError("");
+    return true;
+  };
+  const finish = (id: number) => {
+    pending.current.delete(id); revision.current += 1; setPendingIds(new Set(pending.current));
+    if (!pending.current.size && reloadNeeded.current) { reloadNeeded.current = false; void loadLatest.current(); }
+  };
   const toggleVisibility = async (p: AdminProductRow) => {
+    if (!begin(p.id)) return;
     const nextStatus = p.status === "hidden" ? "active" : "hidden";
-    const res = await fetch(`/api/admin/products/${p.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    if (res.ok) {
-      flash(
-        nextStatus === "hidden"
-          ? "تم إخفاء المنتج من المتجر والبحث والفلاتر."
-          : "تم إظهار المنتج في المتجر بنجاح."
-      );
-      loadProducts();
-    }
+    setProducts(list => list.map(item => item.id === p.id ? { ...item, status: nextStatus } : item));
+    let received = false;
+    try {
+      const res = await fetch(`/api/admin/products/${p.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: nextStatus }) });
+      received = true;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر تغيير حالة المنتج.");
+      if (statusFilter && statusFilter !== nextStatus) setProducts(list => list.filter(item => item.id !== p.id));
+      flash(nextStatus === "hidden" ? "تم إخفاء المنتج." : "تم إظهار المنتج.");
+    } catch (err) {
+      setProducts(list => list.map(item => item.id === p.id ? { ...item, status: p.status } : item));
+      setError(received && err instanceof Error ? err.message : "تعذر تأكيد حالة المنتج بسبب انقطاع الاتصال. تحقق من الحالة قبل إعادة المحاولة.");
+    } finally { finish(p.id); }
   };
 
   const duplicateProduct = async (p: AdminProductRow) => {
-    const res = await fetch(`/api/admin/products/${p.id}/duplicate`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (res.ok) {
+    if (!begin(p.id)) return;
+    let copied = false;
+    try {
+      const res = await fetch(`/api/admin/products/${p.id}/duplicate`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر نسخ المنتج.");
+      copied = true;
       flash(data.message || "تم نسخ المنتج بنجاح.");
-      loadProducts();
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : "تعذر تأكيد نسخ المنتج."); }
+    finally { finish(p.id); }
+    if (copied) void loadProducts();
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const res = await fetch(`/api/admin/products/${deleteTarget.id}`, {
-      method: "DELETE",
-    });
-    const data = await res.json();
-    setDeleting(false);
+    const target = deleteTarget;
+    if (!target || !begin(target.id)) return;
     setDeleteTarget(null);
-    if (res.ok) {
+    setProducts(list => list.filter(item => item.id !== target.id));
+    let received = false;
+    try {
+      const res = await fetch(`/api/admin/products/${target.id}`, { method: "DELETE" });
+      received = true;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "تعذر حذف المنتج.");
       flash(data.message || "تم حذف المنتج نهائيًا.");
-      loadProducts();
-    }
+    } catch (err) {
+      setProducts(list => list.some(item => item.id === target.id) ? list : [...list, target].sort((a, b) => b.id - a.id));
+      setError(received && err instanceof Error ? err.message : "تعذر تأكيد حذف المنتج بسبب انقطاع الاتصال. تحقق من وجوده قبل إعادة المحاولة.");
+    } finally { finish(target.id); }
   };
 
   const filteredCategories = genderFilter
@@ -154,6 +189,8 @@ export default function AdminProductsPage() {
           <span>{notice}</span>
         </div>
       )}
+
+      {error && <p role="alert" className="text-rose-700 text-xs">{error}</p>}
 
       {/* Search & Filters Bar */}
       <div className="bg-white border border-[#D8C8B5]/70 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -309,6 +346,7 @@ export default function AdminProductsPage() {
                         </Link>
                         <button
                           type="button"
+                          disabled={pendingIds.has(p.id)}
                           onClick={() => toggleVisibility(p)}
                           title={p.status === "hidden" ? "إظهار المنتج" : "إخفاء المنتج"}
                           className="p-1.5 border border-[#D8C8B5] hover:border-[#111111] text-[#111111]"
@@ -321,6 +359,7 @@ export default function AdminProductsPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={pendingIds.has(p.id)}
                           onClick={() => duplicateProduct(p)}
                           title="نسخ المنتج"
                           className="p-1.5 border border-[#D8C8B5] hover:border-[#111111] text-[#111111]"
@@ -329,6 +368,7 @@ export default function AdminProductsPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={pendingIds.has(p.id)}
                           onClick={() => setDeleteTarget(p)}
                           title="حذف نهائي"
                           className="p-1.5 border border-rose-200 hover:bg-rose-50 text-rose-700"
@@ -349,7 +389,6 @@ export default function AdminProductsPage() {
         open={Boolean(deleteTarget)}
         title="تأكيد الحذف النهائي للمنتج"
         message={`هل أنت متأكد من حذف المنتج "${deleteTarget?.name || ""}" نهائيًا؟ لا يمكن التراجع عن هذا الإجراء. يمكنك استخدام خيار "إخفاء المنتج" إذا أردت الاحتفاظ به داخل لوحة التحكم.`}
-        loading={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

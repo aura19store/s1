@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Eye, X, Check, Loader2, Download } from "lucide-react";
 import { formatArabicDateTime, formatIQD } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from "@/lib/constants";
+import { ConfirmModal } from "@/components/admin/ConfirmModal";
 
 interface OrderRow {
   id: number;
@@ -64,6 +65,16 @@ export default function AdminOrdersPage() {
   const uncertainStatuses = useRef(new Map<number, { previous: string; requested: string; operationId: string }>());
   const [uncertainIds, setUncertainIds] = useState<ReadonlySet<number>>(new Set());
   const resolvingStatuses = useRef(new Set<number>());
+  const [deleteTarget, setDeleteTarget] = useState<OrderRow | null>(null);
+  const pendingDeletes = useRef(new Set<number>());
+  const reloadNeeded = useRef(false);
+  const loadLatest = useRef<() => Promise<void>>(async () => {});
+  const flushDeferredLoad = () => {
+    if (reloadNeeded.current && !pendingStatus.current.size && !pendingDeletes.current.size) {
+      reloadNeeded.current = false;
+      void loadLatest.current();
+    }
+  };
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
 
@@ -112,8 +123,14 @@ export default function AdminOrdersPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (revision === ordersRevision.current && sequence === loadSequence.current) {
-          setOrders((data.orders || []).map((order: OrderRow) => pendingStatus.current.has(order.id) ? { ...order, status: pendingStatus.current.get(order.id)! } : order));
+        if (sequence === loadSequence.current) {
+          if (revision === ordersRevision.current && !pendingStatus.current.size && !pendingDeletes.current.size) {
+            setOrders(data.orders || []);
+          } else if (pendingStatus.current.size || pendingDeletes.current.size) {
+            reloadNeeded.current = true;
+          } else {
+            void loadLatest.current();
+          }
         }
       }
     } catch {
@@ -122,6 +139,7 @@ export default function AdminOrdersPage() {
       if (sequence === loadSequence.current) setLoading(false);
     }
   }, [statusFilter, search]);
+  loadLatest.current = loadOrders;
 
   useEffect(() => {
     loadOrders();
@@ -170,6 +188,7 @@ export default function AdminOrdersPage() {
         pendingStatus.current.delete(orderId);
         ordersRevision.current += 1;
         setUpdatingIds(new Set(pendingStatus.current.keys()));
+        flushDeferredLoad();
         return;
       }
       // Neither attempt established an outcome. Keep the row disabled and explicitly unconfirmed.
@@ -183,7 +202,7 @@ export default function AdminOrdersPage() {
 
   const updateStatus = (orderId: number, status: string) => {
     const previous = orders.find((order) => order.id === orderId)?.status ?? (selectedOrder?.order.id === orderId ? selectedOrder.order.status : undefined);
-    if (!previous || previous === status || pendingStatus.current.has(orderId)) return;
+    if (!previous || previous === status || pendingStatus.current.has(orderId) || pendingDeletes.current.has(orderId)) return;
     let operationId: string;
     try { operationId = crypto.randomUUID(); } catch { setStatusError("تعذر بدء تحديث آمن للحالة."); return; }
     pendingStatus.current.set(orderId, status); ordersRevision.current += 1;
@@ -196,6 +215,24 @@ export default function AdminOrdersPage() {
   const retryStatus = (orderId: number) => {
     const pending = uncertainStatuses.current.get(orderId);
     if (pending) void resolveStatus(orderId, pending.previous, pending.requested, pending.operationId);
+  };
+
+  const deleteOrder = async () => {
+    const target = deleteTarget;
+    if (!target || pendingDeletes.current.has(target.id) || pendingStatus.current.has(target.id)) return;
+    pendingDeletes.current.add(target.id); ordersRevision.current += 1; setDeleteTarget(null); setStatusError("");
+    setOrders(list => list.filter(order => order.id !== target.id));
+    let received = false;
+    try {
+      const response = await fetch(`/api/admin/orders/${target.id}`, { method: "DELETE" });
+      received = true;
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "تعذر حذف الطلب.");
+      setSelectedOrder(detail => detail?.order.id === target.id ? null : detail); flash(data.message || "تم حذف الطلب.");
+    } catch (error) {
+      setOrders(list => list.some(order => order.id === target.id) ? list : [...list, target].sort((a,b) => b.id-a.id));
+      setStatusError(received && error instanceof Error ? error.message : "تعذر تأكيد حذف الطلب بسبب انقطاع الاتصال. تحقق من وجوده قبل إعادة المحاولة.");
+    } finally { pendingDeletes.current.delete(target.id); ordersRevision.current += 1; flushDeferredLoad(); }
   };
 
   return (
@@ -319,6 +356,7 @@ export default function AdminOrdersPage() {
                         <Eye className="w-3.5 h-3.5" />
                         <span>عرض</span>
                       </button>
+                      <button type="button" disabled={updatingIds.has(o.id)} onClick={() => setDeleteTarget(o)} className="px-3 py-1.5 border border-rose-200 text-rose-700 disabled:opacity-50">حذف</button>
                     </td>
                   </tr>
                 ))}
@@ -327,6 +365,8 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal open={Boolean(deleteTarget)} title="حذف الطلب" message={`حذف الطلب الملغى ${deleteTarget?.order_number || ""}؟ لا يمكن التراجع.`} onConfirm={deleteOrder} onCancel={() => setDeleteTarget(null)} />
 
       {/* Order Detail Modal */}
       {selectedOrder && (

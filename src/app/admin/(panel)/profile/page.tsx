@@ -1,19 +1,22 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useAdminIdentity } from "@/components/admin/AdminIdentity";
 
 export default function AdminProfilePage() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const identity = useAdminIdentity();
+  const [name, setName] = useState(identity?.user.name || "");
+  const [email, setEmail] = useState(identity?.user.email || "");
   const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!identity);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   useEffect(() => {
+    if (identity) return;
     let live = true;
     fetch("/api/admin/auth/me", { cache: "no-store" }).then(async (res) => {
       const data = await res.json();
@@ -22,7 +25,7 @@ export default function AdminProfilePage() {
     }).catch(() => { if (live) setError("تعذر تحميل معلومات المدير."); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, []);
+  }, [Boolean(identity)]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (pending.current) return;
@@ -34,6 +37,7 @@ export default function AdminProfilePage() {
       const res = await fetch("/api/admin/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, ...(password ? { password, current_password: current } : {}) }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error || "تعذر حفظ المعلومات."); return; }
+      identity?.update({ name: data.user.name, email: data.user.email });
       setName(data.user.name); setEmail(data.user.email); setCurrent(""); setPassword(""); setConfirm("");
       setMessage(data.message || "تم حفظ المعلومات.");
     } catch { setError("تعذر الاتصال بالخادم، تحقق من المعلومات قبل إعادة المحاولة."); }
