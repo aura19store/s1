@@ -47,7 +47,7 @@ export default async function EntryPage() {
         aria-label="اختر هالتك"
         className="flex-1 w-full max-w-[1440px] mx-auto px-4 sm:px-8 pb-10 sm:pb-14"
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 h-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 h-full">
           {genders.map((g, idx) => (
             <Link
               key={g.id}
@@ -59,7 +59,7 @@ export default async function EntryPage() {
               <img
                 src={g.entry_image}
                 alt={`تشكيلة ${settings.store_name} ${g.name}`}
-                className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-1000 ease-out group-hover:scale-105"
+                className="absolute inset-0 w-full h-full object-contain object-top sm:object-cover sm:object-center transition-transform duration-1000 ease-out sm:group-hover:scale-105"
               />
 
               {/* Subtle Editorial Dark Gradient Overlay */}

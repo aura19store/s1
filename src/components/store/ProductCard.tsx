@@ -43,7 +43,7 @@ export function ProductCard({ product }: { product: StoreProductCard }) {
             src={product.primary_image}
             alt={product.name}
             loading="lazy"
-            className="w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-[1.03]"
+            className="w-full h-full object-contain sm:object-cover transition-all duration-700 ease-out sm:group-hover:scale-[1.03]"
           />
           {/* Secondary Hover Image */}
           {product.secondary_image &&
@@ -52,7 +52,7 @@ export function ProductCard({ product }: { product: StoreProductCard }) {
                 src={product.secondary_image}
                 alt={product.name}
                 loading="lazy"
-                className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-500 ease-out group-hover:opacity-100"
+                className="absolute inset-0 w-full h-full object-contain sm:object-cover opacity-0 transition-opacity duration-500 ease-out sm:group-hover:opacity-100"
               />
             )}
         </Link>
@@ -74,7 +74,7 @@ export function ProductCard({ product }: { product: StoreProductCard }) {
             toggleWishlist(product.id);
           }}
           aria-label={wishlisted ? "إزالة من المفضلة" : "إضافة إلى المفضلة"}
-          className={`absolute top-3 left-3 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
+          className={`absolute bottom-2 left-2 sm:bottom-auto sm:top-3 sm:left-3 w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
             wishlisted
               ? "bg-[#111111] text-[#B79B6C]"
               : "bg-[#F7F4EF]/85 text-[#111111] hover:bg-[#111111] hover:text-[#F7F4EF]"
@@ -95,7 +95,7 @@ export function ProductCard({ product }: { product: StoreProductCard }) {
         )}
         <Link
           href={`/store/${product.gender_slug}/product/${product.slug}`}
-          className="text-sm sm:text-[15px] font-medium text-[#111111] group-hover:text-[#B79B6C] transition line-clamp-2 leading-snug mb-2"
+          className="text-sm sm:text-[15px] font-medium text-[#111111] group-hover:text-[#B79B6C] transition sm:line-clamp-2 leading-snug mb-2"
         >
           {product.name}
         </Link>

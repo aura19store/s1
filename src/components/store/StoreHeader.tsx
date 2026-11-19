@@ -60,7 +60,7 @@ export function StoreHeader({
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
                 aria-label="فتح القائمة"
-                className="lg:hidden p-2 -mr-2 text-[#111111] hover:text-[#B79B6C] transition"
+                className="lg:hidden min-w-11 min-h-11 p-2 -mr-2 text-[#111111] hover:text-[#B79B6C] transition"
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -142,9 +142,9 @@ export function StoreHeader({
             </nav>
 
             {/* Left side (RTL end): Search, Wishlist, Cart */}
-            <div className="flex items-center gap-1 sm:gap-2">
-              {/* Compact Mobile Gender Pill */}
-              <div className="flex lg:hidden items-center bg-[#EFEAE2] p-0.5 rounded-full border border-[#D8C8B5]/70 ml-1">
+            <div className="flex items-center gap-0 sm:gap-2">
+              {/* On small phones the same switch remains available in the menu. */}
+              <div className="hidden sm:flex lg:hidden items-center bg-[#EFEAE2] p-0.5 rounded-full border border-[#D8C8B5]/70 ml-1">
                 {genders.map((g) => {
                   const active = g.slug === genderSlug;
                   return (
@@ -167,7 +167,7 @@ export function StoreHeader({
                 type="button"
                 onClick={() => setSearchOpen(true)}
                 aria-label="البحث"
-                className="p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
+                className="min-w-11 min-h-11 p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center justify-center gap-1.5"
               >
                 <Search className="w-[19px] h-[19px] stroke-[1.7]" />
                 <span className="hidden xl:inline text-xs font-medium">
@@ -179,7 +179,7 @@ export function StoreHeader({
                 <Link
                   href={`/store/${genderSlug}/account`}
                   aria-label="حسابي"
-                  className="p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
+                  className="hidden sm:flex p-2.5 text-[#111111] hover:text-[#B79B6C] transition items-center gap-1.5"
                 >
                   <UserRound className="w-[19px] h-[19px] stroke-[1.7]" />
                   <span className="hidden xl:inline text-xs font-medium">حسابي</span>
@@ -189,7 +189,7 @@ export function StoreHeader({
               <Link
                 href={`/store/${genderSlug}/wishlist`}
                 aria-label="المفضلة"
-                className="relative p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
+                className="relative min-w-11 min-h-11 p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center justify-center gap-1.5"
               >
                 <Heart className="w-[19px] h-[19px] stroke-[1.7]" />
                 <span className="hidden xl:inline text-xs font-medium">
@@ -206,7 +206,7 @@ export function StoreHeader({
                 type="button"
                 onClick={() => setCartOpen(true)}
                 aria-label="السلة"
-                className="relative p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center gap-1.5"
+                className="relative min-w-11 min-h-11 p-2.5 text-[#111111] hover:text-[#B79B6C] transition flex items-center justify-center gap-1.5"
               >
                 <ShoppingBag className="w-[19px] h-[19px] stroke-[1.7]" />
                 <span className="hidden xl:inline text-xs font-medium">
@@ -332,6 +332,11 @@ export function StoreHeader({
               )}
 
               <div className="pt-4 border-t border-[#D8C8B5]/50 space-y-2 text-sm text-[#111111]/75">
+                {CUSTOMER_ACCOUNT_VISIBLE && (
+                  <Link href={`/store/${genderSlug}/account`} onClick={() => setMobileMenuOpen(false)} className="block py-2.5">
+                    حسابي
+                  </Link>
+                )}
                 <Link
                   href={`/store/${genderSlug}/wishlist`}
                   onClick={() => setMobileMenuOpen(false)}

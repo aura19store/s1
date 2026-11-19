@@ -72,16 +72,16 @@ export default function CartPage() {
               return (
                 <div
                   key={item.id}
-                  className="bg-white border border-[#D8C8B5]/60 p-4 sm:p-5 flex gap-4 sm:gap-6"
+                  className="bg-white border border-[#D8C8B5]/60 p-4 sm:p-5 flex gap-3 sm:gap-6"
                 >
                   <Link
                     href={`/store/${item.genderSlug}/product/${item.slug}`}
-                    className="w-24 h-28 sm:w-28 sm:h-32 bg-[#EFEAE2] shrink-0 overflow-hidden"
+                    className="w-20 h-28 sm:w-28 sm:h-32 bg-[#EFEAE2] shrink-0 overflow-hidden"
                   >
                     <img
                       src={item.image}
                       alt={item.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain sm:object-cover"
                     />
                   </Link>
 
@@ -111,13 +111,13 @@ export default function CartPage() {
                         type="button"
                         onClick={() => removeCartItem(item.id)}
                         aria-label="حذف من السلة"
-                        className="text-[#111111]/45 hover:text-rose-700 p-1.5 transition"
+                        className="text-[#111111]/45 hover:text-rose-700 w-11 h-11 shrink-0 flex items-center justify-center transition"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between pt-4 mt-2 border-t border-[#D8C8B5]/35">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-2 border-t border-[#D8C8B5]/35">
                       <div className="flex items-center border border-[#D8C8B5]">
                         <button
                           type="button"
@@ -125,7 +125,7 @@ export default function CartPage() {
                             updateCartQty(item.id, item.quantity - 1)
                           }
                           aria-label="تقليل الكمية"
-                          className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F4EF]"
+                          className="w-11 h-11 flex items-center justify-center hover:bg-[#F7F4EF]"
                         >
                           <Minus className="w-3.5 h-3.5" />
                         </button>
@@ -139,7 +139,7 @@ export default function CartPage() {
                             updateCartQty(item.id, item.quantity + 1)
                           }
                           aria-label="زيادة الكمية"
-                          className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F4EF] disabled:opacity-35"
+                          className="w-11 h-11 flex items-center justify-center hover:bg-[#F7F4EF] disabled:opacity-35"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>

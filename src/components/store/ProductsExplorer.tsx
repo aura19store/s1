@@ -634,11 +634,11 @@ export function ProductsExplorer({
         </div>
 
         {/* Toolbar: Mobile Filter Trigger + Sort */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => setMobileFiltersOpen(true)}
-            className="lg:hidden flex items-center gap-2 px-4 py-2.5 bg-white border border-[#D8C8B5] text-xs font-semibold text-[#111111]"
+            className="lg:hidden min-h-11 flex items-center gap-2 px-4 py-2.5 bg-white border border-[#D8C8B5] text-xs font-semibold text-[#111111]"
           >
             <SlidersHorizontal className="w-4 h-4 text-[#B79B6C]" />
             <span>تصفية</span>
@@ -663,7 +663,7 @@ export function ProductsExplorer({
                 setSort(e.target.value);
                 fetchFiltered({ sort: e.target.value, page: 1 });
               }}
-              className="bg-white border border-[#D8C8B5] px-3.5 py-2.5 text-xs font-medium text-[#111111] focus:outline-none focus:border-[#111111]"
+              className="min-h-11 max-w-full bg-white border border-[#D8C8B5] px-3.5 py-2.5 text-xs font-medium text-[#111111] focus:outline-none focus:border-[#111111]"
             >
               {SORT_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>

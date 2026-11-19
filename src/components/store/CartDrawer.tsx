@@ -121,7 +121,7 @@ export function CartDrawer() {
                       <img
                         src={item.image}
                         alt={item.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain sm:object-cover"
                       />
                     </Link>
                     <div className="flex-1 min-w-0">
@@ -133,7 +133,7 @@ export function CartDrawer() {
                           <Link
                             href={`/store/${item.genderSlug}/product/${item.slug}`}
                             onClick={() => setCartOpen(false)}
-                            className="block text-sm font-medium text-[#111111] hover:text-[#B79B6C] transition line-clamp-2"
+                            className="block text-sm font-medium text-[#111111] hover:text-[#B79B6C] transition sm:line-clamp-2"
                           >
                             {item.name}
                           </Link>
@@ -142,7 +142,7 @@ export function CartDrawer() {
                           type="button"
                           onClick={() => removeCartItem(item.id)}
                           aria-label="حذف المنتج"
-                          className="text-[#111111]/45 hover:text-rose-700 transition p-1"
+                          className="text-[#111111]/45 hover:text-rose-700 transition w-11 h-11 shrink-0 flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -154,7 +154,7 @@ export function CartDrawer() {
                         </p>
                       )}
 
-                      <div className="flex items-center justify-between mt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
                         <div className="flex items-center border border-[#D8C8B5] bg-white">
                           <button
                             type="button"
@@ -162,7 +162,7 @@ export function CartDrawer() {
                               updateCartQty(item.id, item.quantity - 1)
                             }
                             aria-label="تقليل الكمية"
-                            className="w-7 h-7 flex items-center justify-center text-[#111111] hover:bg-[#F7F4EF]"
+                            className="w-11 h-11 flex items-center justify-center text-[#111111] hover:bg-[#F7F4EF]"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
@@ -176,7 +176,7 @@ export function CartDrawer() {
                               updateCartQty(item.id, item.quantity + 1)
                             }
                             aria-label="زيادة الكمية"
-                            className="w-7 h-7 flex items-center justify-center text-[#111111] hover:bg-[#F7F4EF] disabled:opacity-35"
+                            className="w-11 h-11 flex items-center justify-center text-[#111111] hover:bg-[#F7F4EF] disabled:opacity-35"
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </button>

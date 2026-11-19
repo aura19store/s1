@@ -475,17 +475,17 @@ export function CheckoutClient({
                   item.genderName ||
                   (item.genderSlug === "women" ? "نسائي" : "رجالي");
                 return (
-                  <div key={item.id} className="flex items-center gap-3.5">
+                  <div key={item.id} className="grid grid-cols-[4rem_minmax(0,1fr)] sm:flex items-center gap-3.5">
                     <img
                       src={item.image}
                       alt={item.name}
-                      className="w-16 h-20 object-cover bg-[#EFEAE2] shrink-0"
+                      className="w-16 h-20 object-contain sm:object-cover bg-[#EFEAE2] shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 bg-[#EFEAE2] text-[#111111]/75 mb-0.5">
                         {sectionTag}
                       </span>
-                      <p className="text-sm font-medium text-[#111111] line-clamp-1">
+                      <p className="text-sm font-medium text-[#111111] sm:line-clamp-1">
                         {item.name}
                       </p>
                       {item.variantLabel && (
@@ -497,7 +497,7 @@ export function CheckoutClient({
                         الكمية: {item.quantity}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-[#111111] whitespace-nowrap">
+                    <span className="col-start-2 text-sm font-semibold text-[#111111] sm:whitespace-nowrap">
                       {formatIQD(item.lineTotal)}
                     </span>
                   </div>

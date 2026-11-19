@@ -70,7 +70,7 @@ export function SearchModal() {
               type="button"
               onClick={() => setSearchOpen(false)}
               aria-label="إغلاق البحث"
-              className="p-1.5 text-[#111111]/60 hover:text-[#111111]"
+              className="min-w-11 min-h-11 p-1.5 text-[#111111]/60 hover:text-[#111111]"
             >
               <X className="w-5 h-5" />
             </button>
@@ -143,13 +143,13 @@ export function SearchModal() {
                       <img
                         src={prod.primary_image}
                         alt={prod.name}
-                        className="w-16 h-16 object-cover bg-[#EFEAE2] shrink-0"
+                        className="w-16 h-16 object-contain sm:object-cover bg-[#EFEAE2] shrink-0"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="text-[11px] text-[#B79B6C]">
                           {prod.category_name}
                         </p>
-                        <p className="text-sm font-medium text-[#111111] truncate group-hover:text-[#B79B6C] transition">
+                        <p className="text-sm font-medium text-[#111111] sm:truncate group-hover:text-[#B79B6C] transition">
                           {prod.name}
                         </p>
                         <div className="flex items-center gap-2 mt-1">

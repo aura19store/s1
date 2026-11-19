@@ -105,7 +105,7 @@ export function ProductDetailClient({
             <img
               src={activeImage}
               alt={product.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain lg:object-cover"
             />
             {product.has_discount && product.discount_percent > 0 && (
               <span className="absolute top-4 right-4 px-3 py-1.5 bg-[#B79B6C] text-[#111111] text-xs font-bold">
@@ -135,7 +135,7 @@ export function ProductDetailClient({
                   <img
                     src={img.url}
                     alt={`${product.name} - صورة ${i + 1}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain lg:object-cover"
                   />
                 </button>
               ))}
@@ -145,15 +145,15 @@ export function ProductDetailClient({
 
         {/* Left Column: Product Information & Purchase Controls */}
         <div className="lg:col-span-5">
-          <div className="lg:sticky lg:top-28 space-y-6">
+          <div className="lg:sticky lg:top-28 flex flex-col gap-6">
             {/* Category & SKU */}
-            <div className="flex items-center justify-between text-xs text-[#111111]/55">
+            <div className="order-6 lg:order-none flex flex-wrap items-center justify-between gap-2 text-xs text-[#111111]/55">
               <span>{product.category_name || genderLabel}</span>
               <span>رمز القطعة: {product.sku}</span>
             </div>
 
             {/* Title & Rating */}
-            <div className="space-y-3">
+            <div className="order-1 lg:order-none space-y-3">
               <h1 className="font-editorial text-3xl sm:text-4xl text-[#111111] leading-snug">
                 {product.name}
               </h1>
@@ -181,7 +181,7 @@ export function ProductDetailClient({
             </div>
 
             {/* Price in IQD */}
-            <div className="py-4 border-y border-[#D8C8B5]/60 space-y-1.5">
+            <div className="order-2 lg:order-none py-4 border-y border-[#D8C8B5]/60 space-y-1.5">
               <div className="flex items-baseline gap-3 flex-wrap">
                 <span className="text-2xl sm:text-3xl font-bold text-[#111111]">
                   {formatIQD(product.final_price)}
@@ -205,13 +205,13 @@ export function ProductDetailClient({
             </div>
 
             {/* Description */}
-            <p className="text-sm text-[#111111]/80 leading-loose">
+            <p className="order-7 lg:order-none text-sm text-[#111111]/80 leading-loose">
               {product.description}
             </p>
 
             {/* Color Selector */}
             {product.colors.length > 0 && (
-              <div>
+              <div className="order-3 lg:order-none">
                 <p className="text-xs font-semibold text-[#111111] mb-2.5">
                   اللون:{" "}
                   <span className="font-normal text-[#B79B6C]">
@@ -226,7 +226,7 @@ export function ProductDetailClient({
                         key={c.slug}
                         type="button"
                         onClick={() => setSelectedColor(c.value)}
-                        className={`flex items-center gap-2 px-3 py-2 text-xs border transition ${
+                        className={`min-h-11 flex items-center gap-2 px-3 py-2 text-xs border transition ${
                           active
                             ? "border-[#111111] bg-[#111111] text-[#F7F4EF]"
                             : "border-[#D8C8B5] bg-white text-[#111111] hover:border-[#111111]"
@@ -246,7 +246,7 @@ export function ProductDetailClient({
 
             {/* Size Selector */}
             {product.sizes.length > 0 && (
-              <div>
+              <div className="order-4 lg:order-none">
                 <p className="text-xs font-semibold text-[#111111] mb-2.5">
                   المقاس:{" "}
                   <span className="font-normal text-[#B79B6C]">
@@ -261,7 +261,7 @@ export function ProductDetailClient({
                         key={sz}
                         type="button"
                         onClick={() => setSelectedSize(sz)}
-                        className={`px-4 py-2 text-xs font-medium border transition ${
+                        className={`min-h-11 min-w-11 px-4 py-2 text-xs font-medium border transition ${
                           active
                             ? "border-[#111111] bg-[#111111] text-[#F7F4EF]"
                             : "border-[#D8C8B5] bg-white text-[#111111] hover:border-[#111111]"
@@ -277,14 +277,14 @@ export function ProductDetailClient({
 
             {/* Material & Custom Attributes Summary */}
             {product.materials.length > 0 && (
-              <div className="text-xs text-[#111111]/75">
+              <div className="order-8 lg:order-none text-xs text-[#111111]/75">
                 <span className="font-semibold text-[#111111]">الخامة: </span>
                 <span>{product.materials.join("، ")}</span>
               </div>
             )}
 
             {/* Availability Status */}
-            <div className="flex items-center gap-2 text-xs font-medium">
+            <div className="order-4 lg:order-none flex items-center gap-2 text-xs font-medium">
               {outOfStock ? (
                 <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5">
                   <span className="w-2 h-2 rounded-full bg-rose-600" />
@@ -304,9 +304,9 @@ export function ProductDetailClient({
             </div>
 
             {/* Quantity + Add to Cart + Wishlist */}
-            <div className="space-y-3 pt-1">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center border border-[#D8C8B5] bg-white h-13">
+            <div className="order-5 lg:order-none space-y-3 pt-1">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex items-center justify-between w-full sm:w-auto border border-[#D8C8B5] bg-white h-13">
                   <button
                     type="button"
                     disabled={outOfStock || quantity <= 1}
@@ -336,7 +336,7 @@ export function ProductDetailClient({
                   type="button"
                   disabled={outOfStock || adding}
                   onClick={handleAddToCart}
-                  className="flex-1 h-13 bg-[#111111] text-[#F7F4EF] hover:bg-[#B79B6C] hover:text-[#111111] disabled:bg-stone-400 disabled:text-white text-sm font-semibold transition flex items-center justify-center gap-2.5"
+                  className="w-full sm:w-auto sm:flex-1 min-h-13 bg-[#111111] text-[#F7F4EF] hover:bg-[#B79B6C] hover:text-[#111111] disabled:bg-stone-400 disabled:text-white text-sm font-semibold transition flex items-center justify-center gap-2.5"
                 >
                   <ShoppingBag className="w-4 h-4" />
                   <span>
@@ -370,7 +370,7 @@ export function ProductDetailClient({
             </div>
 
             {/* Trust Strip */}
-            <div className="grid grid-cols-2 gap-3 pt-2 text-center text-xs text-[#111111]/75">
+            <div className="order-9 lg:order-none grid grid-cols-2 gap-3 pt-2 text-center text-xs text-[#111111]/75">
               <div className="bg-white border border-[#D8C8B5]/50 p-3.5 flex flex-col items-center gap-1.5">
                 <Truck className="w-4 h-4 text-[#B79B6C]" />
                 <span>
@@ -384,7 +384,7 @@ export function ProductDetailClient({
             </div>
 
             {/* Accordions: Details, Materials, Shipping */}
-            <div className="border-t border-[#D8C8B5]/70 divide-y divide-[#D8C8B5]/60">
+            <div className="order-10 lg:order-none border-t border-[#D8C8B5]/70 divide-y divide-[#D8C8B5]/60">
               {[
                 {
                   id: "details",
