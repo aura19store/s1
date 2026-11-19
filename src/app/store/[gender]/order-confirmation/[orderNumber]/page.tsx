@@ -1,10 +1,13 @@
 import React from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { cookies, headers } from "next/headers";
+import { findBrowserOrder, readOrderBrowserCookie } from "@/lib/guest-order-access";
+import { TrackingSecret } from "@/components/store/TrackingSecret";
 import { CheckCircle2, Package, MapPin, CreditCard } from "lucide-react";
-import { queryAll, queryOne } from "@/db";
+import { queryAll } from "@/db";
 import { formatArabicDateTime, formatIQD } from "@/lib/format";
-import { AURA_CONTACT, ORDER_STATUS_LABELS } from "@/lib/constants";
+import { AURA_CONTACT } from "@/lib/constants";
+import { GUEST_ORDER_STATUS_LABELS } from "@/lib/guest-order-status";
 import { WhatsAppIcon, buildWhatsAppUrl } from "@/components/store/ContactIcons";
 
 export const dynamic = "force-dynamic";
@@ -15,26 +18,13 @@ export default async function OrderConfirmationPage({
   params: Promise<{ gender: string; orderNumber: string }>;
 }) {
   const { gender, orderNumber } = await params;
-  const decodedNum = decodeURIComponent(orderNumber);
+  const decodedNum = orderNumber;
 
-  const order = await queryOne<{
-    id: number;
-    order_number: string;
-    customer_name: string;
-    customer_phone: string;
-    governorate: string;
-    city: string;
-    address: string;
-    payment_method: string;
-    subtotal_iqd: number;
-    discount_iqd: number;
-    shipping_iqd: number;
-    total_iqd: number;
-    status: string;
-    created_at: string;
-  }>(`SELECT * FROM orders WHERE order_number = ?`, decodedNum);
-
-  if (!order) notFound();
+  const cookieStore = await cookies();
+  const host = (await headers()).get("host") || "";
+  const browser = readOrderBrowserCookie(name => cookieStore.get(name)?.value, host);
+  const order = await findBrowserOrder(decodedNum, browser);
+  if (!order) return <div className="max-w-3xl mx-auto p-8 text-center"><h1 className="text-2xl">الطلب غير متاح</h1><p className="mt-4">قد يكون الطلب محذوفًا أو تحتاج إلى بيانات التتبع.</p><Link className="inline-block mt-5 underline" href={`/store/${gender}/orders`}>الانتقال إلى طلباتي</Link></div>;
 
   const items = await queryAll<{
     id: number;
@@ -68,6 +58,8 @@ export default async function OrderConfirmationPage({
           </div>
         </div>
 
+        <TrackingSecret orderNumber={order.order_number} gender={gender} />
+
         {/* Info Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
           <div className="bg-[#F7F4EF]/70 p-4 border border-[#D8C8B5]/50 space-y-1">
@@ -76,7 +68,7 @@ export default async function OrderConfirmationPage({
               <span>حالة الطلب</span>
             </div>
             <p className="text-sm font-semibold text-[#111111]">
-              {ORDER_STATUS_LABELS[order.status] || order.status}
+              {GUEST_ORDER_STATUS_LABELS[order.status] || "غير متاحة"}
             </p>
             <p className="text-[#111111]/55">
               {formatArabicDateTime(order.created_at)}

@@ -98,6 +98,9 @@ export function StoreHeader({
                 الرئيسية
               </Link>
 
+              <Link href={`/store/${genderSlug}/orders`} className="text-[#111111]/75 hover:text-[#111111] transition">طلباتي</Link>
+              <Link href={`/store/${genderSlug}/track-order`} className="text-[#111111]/75 hover:text-[#111111] transition">تتبع طلب</Link>
+
               {/* Prominent Dynamic Gender Switcher: رجالي | نسائي */}
               <div
                 role="group"
@@ -332,6 +335,8 @@ export function StoreHeader({
               )}
 
               <div className="pt-4 border-t border-[#D8C8B5]/50 space-y-2 text-sm text-[#111111]/75">
+                <Link href={`/store/${genderSlug}/orders`} onClick={() => setMobileMenuOpen(false)} className="block py-2.5">طلباتي</Link>
+                <Link href={`/store/${genderSlug}/track-order`} onClick={() => setMobileMenuOpen(false)} className="block py-2.5">تتبع طلب</Link>
                 {CUSTOMER_ACCOUNT_VISIBLE && (
                   <Link href={`/store/${genderSlug}/account`} onClick={() => setMobileMenuOpen(false)} className="block py-2.5">
                     حسابي

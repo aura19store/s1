@@ -205,6 +205,17 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS guest_order_credentials (
+  order_id INTEGER PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+  secret_hash TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS guest_order_access (
+  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  browser_hash TEXT NOT NULL,
+  PRIMARY KEY (order_id, browser_hash)
+);
+CREATE INDEX IF NOT EXISTS guest_order_access_browser_idx ON guest_order_access(browser_hash);
+
 CREATE TABLE IF NOT EXISTS order_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,

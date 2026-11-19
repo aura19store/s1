@@ -80,6 +80,8 @@ export function CheckoutClient({
   const previewTotal = Math.max(0, cart.totalIqd - Number(selectedCredit?.remaining_iqd || 0));
   const [copiedCard, setCopiedCard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [trackingFallback, setTrackingFallback] = useState<{ number: string; secret: string } | null>(null);
+  const [trackingCopied, setTrackingCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const activeMethodObj = availableMethods.find((m) => m.name === paymentMethod);
@@ -122,6 +124,14 @@ export function CheckoutClient({
     setSubmitting(true);
 
     try {
+      const session = await fetch("/api/store/orders/session", { cache: "no-store" });
+      if (!session.ok) throw new Error("tracking session unavailable");
+      const verification = await fetch("/api/store/orders/session", { cache: "no-store" });
+      if (!verification.ok || !(await verification.json()).ready) {
+        setErrorMsg("يرجى السماح بملفات تعريف الارتباط لإتمام الطلب وحفظ إمكانية تتبعه.");
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: getGuestTokenHeaders({ "Content-Type": "application/json" }),
@@ -144,7 +154,14 @@ export function CheckoutClient({
         return;
       }
 
-      await refreshCart();
+      try {
+        sessionStorage.setItem(`aura-tracking-${data.order.orderNumber}`, data.order.trackingSecret);
+      } catch {
+        setTrackingFallback({ number: data.order.orderNumber, secret: data.order.trackingSecret });
+        setSubmitting(false);
+        return;
+      }
+      await refreshCart().catch(() => {});
       showToast("تم تأكيد طلبك بنجاح!");
       router.push(
         `/store/${genderSlug}/order-confirmation/${encodeURIComponent(data.order.orderNumber)}`
@@ -154,6 +171,10 @@ export function CheckoutClient({
       setSubmitting(false);
     }
   };
+
+  if (trackingFallback) {
+    return <div className="max-w-3xl mx-auto px-4 py-14"><div className="bg-white border border-[#D8C8B5] p-6 space-y-4"><h1 className="text-2xl">تم استلام طلبك بنجاح</h1><p>رقم الطلب: {trackingFallback.number}</p><p>الحالة: تم استلام الطلب</p><p>احفظ رمز التتبع السري في مكان آمن قبل مغادرة الصفحة. ستحتاجه للتتبع من جهاز آخر.</p><p dir="ltr" className="break-all select-all font-mono text-sm">{trackingFallback.secret}</p><button type="button" className="min-h-11 underline block" onClick={async () => { try { await navigator.clipboard.writeText(`${trackingFallback.number}\n${trackingFallback.secret}`); setTrackingCopied(true); } catch { setTrackingCopied(false); } }}>{trackingCopied ? "تم النسخ" : "نسخ بيانات التتبع"}</button><Link className="inline-flex min-h-11 items-center bg-[#111111] text-white px-6" href={`/store/${genderSlug}/order-confirmation/${encodeURIComponent(trackingFallback.number)}`}>متابعة</Link></div></div>;
+  }
 
   if (cart.items.length === 0) {
     return (

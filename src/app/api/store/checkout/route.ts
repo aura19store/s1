@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDatabaseDriver, queryAll, queryOne, runTransaction } from "@/db";
 import { getGuestSessionToken } from "@/lib/auth";
 import { insertOrderWithUniqueNumber } from "@/lib/order-number";
+import { addOrderAccess, browserTokenOrNew, newOrderSecret, setBrowserToken } from "@/lib/guest-order-access";
 import { getCustomerRefreshToken, getCustomerUser, isSameOriginCustomerRequest } from "@/lib/customer-auth";
 import {
   calculateShippingIQD,
@@ -164,6 +165,8 @@ export async function POST(request: NextRequest) {
     const grossTotalIqd = subtotalIqd + shippingIqd;
     if (parsed.data.rewardGrantId && !account) return NextResponse.json({ error: "يرجى تسجيل الدخول لاستخدام الرصيد." }, { status: 401 });
 
+    const browser = browserTokenOrNew(request);
+    const trackingSecret = newOrderSecret();
     const orderResult = await runTransaction(async (tx) => {
       let creditUsedIqd = 0;
       const grantId = parsed.data.rewardGrantId;
@@ -240,6 +243,7 @@ export async function POST(request: NextRequest) {
         );
         return result.changes;
       });
+      await addOrderAccess(tx, orderId, browser, trackingSecret);
       if (creditUsedIqd > 0 && grantId) await tx.execute(
         `INSERT INTO aura_reward_credit_uses (grant_id, order_id, amount_iqd) VALUES (?, ?, ?)`, grantId, orderId, creditUsedIqd
       );
@@ -292,14 +296,17 @@ export async function POST(request: NextRequest) {
       return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd, creditUsedIqd };
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: "تم استلام طلبك بنجاح! شكرًا لاختيارك AURA.",
-      order: orderResult,
-    });
+      order: { ...orderResult, trackingSecret },
+    }, { headers: { "Cache-Control": "no-store" } });
+    setBrowserToken(response, request, browser);
+    return response;
   } catch (err) {
     if (err instanceof Error && (err.message === "ORDER_NUMBER_ALLOCATION_FAILED" || err.message === "ORDER_ID_ALLOCATION_FAILED")) return NextResponse.json({ error: "تعذر تخصيص رقم للطلب، يرجى المحاولة مجددًا." }, { status: 503 });
     if (err instanceof Error && err.message === "INVALID_REWARD_CREDIT") return NextResponse.json({ error: "الرصيد المختار غير متاح أو منتهي الصلاحية." }, { status: 409 });
-    console.error("Checkout API error:", err);
+    // Do not log raw database/driver errors: they can contain connection details or customer data.
+    console.error("Checkout API error");
     return NextResponse.json(
       { error: "حدث خطأ أثناء تأكيد الطلب، يرجى المحاولة مجددًا." },
       { status: 500 }
