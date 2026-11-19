@@ -4,6 +4,7 @@ node_modules
 # Next.js
 .next
 .open-next
+.open-next-build.lock
 .wrangler
 .dev.vars*
 out

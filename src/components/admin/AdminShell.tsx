@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -58,6 +58,12 @@ export function AdminShell({
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [identity, setIdentity] = useState(user);
+
+  // Preserve a locally confirmed save on ordinary rerenders, but adopt changed
+  // authoritative identity when the server refreshes or the session changes.
+  useEffect(() => {
+    setIdentity(user);
+  }, [user.id, user.name, user.email]);
 
   const visibleNav = NAV_ITEMS.filter(
     (item) =>
@@ -171,7 +177,7 @@ export function AdminShell({
 
   return (
     <AdminIdentity.Provider value={{ user: identity, update: value => setIdentity(previous => ({ ...previous, ...value })) }}>
-    <div className="min-h-screen bg-[#F7F4EF] text-[#111111] flex">
+    <div data-aura-build={process.env.NEXT_PUBLIC_AURA_BUILD_FINGERPRINT || "development"} className="min-h-screen bg-[#F7F4EF] text-[#111111] flex">
       {/* Desktop Fixed Sidebar (RTL Right Side) */}
       <aside className="hidden lg:block w-64 shrink-0 sticky top-0 h-screen">
         {renderSidebarContent()}

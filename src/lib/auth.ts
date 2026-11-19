@@ -76,6 +76,8 @@ export async function getAdminUser(): Promise<AdminUser | null> {
   if (!rawToken) return null;
 
   const tokenHash = hashToken(rawToken);
+  // Hyperdrive does not cache queries containing CURRENT_TIMESTAMP. Identity,
+  // session revocation and permissions must be read from the database afresh.
   const row = await queryOne<{
     id: number;
     name: string;
@@ -93,7 +95,7 @@ export async function getAdminUser(): Promise<AdminUser | null> {
      FROM admin_sessions s
      JOIN users u ON u.id = s.user_id
      JOIN roles r ON r.id = u.role_id
-     WHERE s.token_hash = ?`,
+     WHERE s.token_hash = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
     tokenHash
   );
 

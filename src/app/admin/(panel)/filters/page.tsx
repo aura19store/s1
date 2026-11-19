@@ -62,6 +62,16 @@ export default function AdminFiltersPage() {
   const [deleteTarget, setDeleteTarget] = useState<FilterRow | null>(null);
   const pendingDeletes = useRef(new Set<number>());
   const filtersRevision = useRef(0);
+  const loadSequence = useRef(0);
+  const reloadNeeded = useRef(false);
+  const loadLatest = useRef<() => Promise<void>>(async () => {});
+
+  const flushDeferredLoad = () => {
+    if (reloadNeeded.current && !savePending.current && !pendingChanges.current.size && !pendingDeletes.current.size && !reorderPending.current) {
+      reloadNeeded.current = false;
+      void loadLatest.current();
+    }
+  };
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -70,22 +80,32 @@ export default function AdminFiltersPage() {
 
   const loadFilters = useCallback(async () => {
     const revision = filtersRevision.current;
+    const sequence = ++loadSequence.current;
     if (!hasLoaded.current) setLoading(true);
     try {
       const res = await fetch("/api/admin/filters", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        if (revision === filtersRevision.current) {
-          setFilters((data.filters || []).filter((item: FilterRow) => !pendingDeletes.current.has(item.id)));
+        if (sequence === loadSequence.current) {
+          if (revision === filtersRevision.current && !savePending.current && !pendingChanges.current.size && !pendingDeletes.current.size && !reorderPending.current) {
+            setFilters(data.filters || []);
+          } else if (savePending.current || pendingChanges.current.size || pendingDeletes.current.size || reorderPending.current) {
+            reloadNeeded.current = true;
+          } else {
+            void loadLatest.current();
+          }
         }
       }
     } catch {
-      setNotice("تعذر تحميل الفلاتر، يرجى التحقق من الاتصال.");
+      if (sequence === loadSequence.current) setNotice("تعذر تحميل الفلاتر، يرجى التحقق من الاتصال.");
     } finally {
-      hasLoaded.current = true;
-      setLoading(false);
+      if (sequence === loadSequence.current) {
+        hasLoaded.current = true;
+        setLoading(false);
+      }
     }
   }, []);
+  loadLatest.current = loadFilters;
 
   useEffect(() => {
     loadFilters();
@@ -126,7 +146,7 @@ export default function AdminFiltersPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (savePending.current || reorderPending.current || pendingDeletes.current.size || (editing && pendingChanges.current.has(editing.id))) return;
-    savePending.current = true; setSaving(true); setNotice("");
+    savePending.current = true; filtersRevision.current += 1; setSaving(true); setNotice("");
     if (editing) pendingChanges.current.add(editing.id);
     const payload = { name: formName, type: formType, is_visible: formVisible,
       values: formValues.map(v => ({ id: v.id, value: v.value, color_hex: formType === "color" ? v.color_hex : "" })) };
@@ -140,7 +160,11 @@ export default function AdminFiltersPage() {
       setFilters(list => [...list.filter(item => item.id !== Number(data.filter.id)), data.filter].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id));
       setModalOpen(false); flash(data.message || "تم حفظ الفلتر بنجاح.");
     } catch (error) { flash(error instanceof Error ? error.message : "تعذر الاتصال لحفظ الفلتر."); }
-    finally { if (editing) pendingChanges.current.delete(editing.id); savePending.current = false; setSaving(false); }
+    finally {
+      if (editing) pendingChanges.current.delete(editing.id);
+      filtersRevision.current += 1; savePending.current = false; setSaving(false);
+      flushDeferredLoad();
+    }
   };
 
   const toggleVisible = async (f: FilterRow) => {
@@ -156,7 +180,7 @@ export default function AdminFiltersPage() {
     } catch (error) {
       setFilters(list => list.map(item => item.id === f.id ? f : item));
       flash(error instanceof Error ? error.message : "تعذر تأكيد التغيير.");
-    } finally { filtersRevision.current += 1; pendingChanges.current.delete(f.id); }
+    } finally { filtersRevision.current += 1; pendingChanges.current.delete(f.id); flushDeferredLoad(); }
   };
 
   const confirmDelete = async () => {
@@ -179,6 +203,7 @@ export default function AdminFiltersPage() {
     } finally {
       filtersRevision.current += 1;
       pendingDeletes.current.delete(target.id);
+      flushDeferredLoad();
     }
   };
 
@@ -192,6 +217,7 @@ export default function AdminFiltersPage() {
     const [moved] = list.splice(fromIdx, 1);
     list.splice(toIdx, 0, moved);
     setDraggedId(null);
+    filtersRevision.current += 1;
     setFilters(list);
     reorderPending.current = true;
     setNotice("");
@@ -213,7 +239,9 @@ export default function AdminFiltersPage() {
       setFilters(previous);
       setReorderError("تعذر الاتصال لحفظ ترتيب الفلاتر.");
     } finally {
+      filtersRevision.current += 1;
       reorderPending.current = false;
+      flushDeferredLoad();
     }
   };
 

@@ -29,7 +29,7 @@ export async function PUT(
   const { id } = await context.params;
   const attrId = Number(id);
   const existing = await queryOne<{ id: number }>(
-    `SELECT id FROM attributes WHERE id = ?`,
+    `SELECT id FROM attributes WHERE id = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
     attrId
   );
   if (!existing) {

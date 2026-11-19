@@ -14,6 +14,7 @@ export async function GET() {
              r.slug as role_slug, r.name as role_name
       FROM users u
       JOIN roles r ON r.id = u.role_id
+      WHERE CURRENT_TIMESTAMP IS NOT NULL
       ORDER BY u.id ASC
     `),
     queryAll(

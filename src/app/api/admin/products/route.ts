@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
   const categoryId = sp.get("categoryId");
   const status = sp.get("status");
 
-  const where: string[] = ["1=1"];
+  // Admin lists must reflect writes immediately, even with Hyperdrive query caching enabled.
+  const where: string[] = ["CURRENT_TIMESTAMP IS NOT NULL"];
   const params: (string | number)[] = [];
 
   if (search) {
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
         `SELECT id, gender_id, parent_id, name, slug FROM categories ORDER BY gender_id ASC, sort_order ASC`
       ),
       queryAll<{ id: number; slug: string; name: string; type: string }>(
-        `SELECT id, slug, name, type FROM attributes ORDER BY sort_order ASC`
+        `SELECT id, slug, name, type FROM attributes WHERE CURRENT_TIMESTAMP IS NOT NULL ORDER BY sort_order ASC`
       ),
       queryAll<{
         id: number;
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
         slug: string;
         value: string;
         color_hex: string;
-      }>(`SELECT id, attribute_id, slug, value, color_hex FROM attribute_values ORDER BY sort_order ASC`),
+      }>(`SELECT id, attribute_id, slug, value, color_hex FROM attribute_values WHERE CURRENT_TIMESTAMP IS NOT NULL ORDER BY sort_order ASC`),
     ]);
 
   return NextResponse.json({

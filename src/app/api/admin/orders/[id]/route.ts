@@ -13,13 +13,14 @@ export async function GET(
 
   const { id } = await context.params;
   const orderId = Number(id);
-  const order = await queryOne(`SELECT * FROM orders WHERE id = ?`, orderId);
+  // Detail and PDF reads must not reuse a cached pre-update order.
+  const order = await queryOne(`SELECT * FROM orders WHERE id = ? AND CURRENT_TIMESTAMP IS NOT NULL`, orderId);
   if (!order) {
     return NextResponse.json({ error: "الطلب غير موجود." }, { status: 404 });
   }
 
   const items = await queryAll(
-    `SELECT * FROM order_items WHERE order_id = ?`,
+    `SELECT * FROM order_items WHERE order_id = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
     orderId
   );
 
@@ -49,7 +50,7 @@ export async function PATCH(
   const { id } = await context.params;
   const orderId = Number(id);
   const existing = await queryOne<{ id: number; status: string }>(
-    `SELECT id, status FROM orders WHERE id = ?`,
+    `SELECT id, status FROM orders WHERE id = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
     orderId
   );
   if (!existing) {

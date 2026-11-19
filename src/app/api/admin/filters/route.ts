@@ -8,6 +8,7 @@ export async function GET() {
   const auth = await requireAdminApi("filters");
   if ("error" in auth) return auth.error;
 
+  // Keep both halves of the admin list fresh when Hyperdrive caching is on.
   const [attrs, values] = await Promise.all([
     queryAll<{
       id: number;
@@ -17,7 +18,7 @@ export async function GET() {
       sort_order: number;
       is_visible: number;
       is_filterable: number;
-    }>(`SELECT * FROM attributes ORDER BY sort_order ASC, id ASC`),
+    }>(`SELECT * FROM attributes WHERE CURRENT_TIMESTAMP IS NOT NULL ORDER BY sort_order ASC, id ASC`),
     queryAll<{
       id: number;
       attribute_id: number;
@@ -30,6 +31,7 @@ export async function GET() {
       SELECT av.*,
              (SELECT COUNT(*) FROM product_attribute_values pav WHERE pav.attribute_value_id = av.id) as usage_count
       FROM attribute_values av
+      WHERE CURRENT_TIMESTAMP IS NOT NULL
       ORDER BY av.sort_order ASC, av.id ASC
     `),
   ]);
@@ -76,13 +78,13 @@ export async function POST(request: NextRequest) {
     const d = parsed.data;
     let slug = slugify(d.name);
     const dup = await queryOne<{ id: number }>(
-      `SELECT id FROM attributes WHERE slug = ?`,
+      `SELECT id FROM attributes WHERE slug = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
       slug
     );
     if (dup) slug = `${slug}-${Date.now().toString().slice(-3)}`;
 
     const maxOrder = await queryOne<{ m: number }>(
-      `SELECT COALESCE(MAX(sort_order), 0) as m FROM attributes`
+      `SELECT COALESCE(MAX(sort_order), 0) as m FROM attributes WHERE CURRENT_TIMESTAMP IS NOT NULL`
     );
 
     const { id, filter, values } = await runTransaction(async (tx) => {

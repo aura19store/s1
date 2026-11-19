@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
   const status = sp.get("status") || "";
   const search = (sp.get("q") || "").trim();
 
-  const where: string[] = ["1=1"];
+  // CURRENT_TIMESTAMP makes the read uncacheable by Hyperdrive (read-after-write).
+  const where: string[] = ["CURRENT_TIMESTAMP IS NOT NULL"];
   const params: (string | number)[] = [];
 
   if (status && status !== "all") {

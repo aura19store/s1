@@ -12,18 +12,19 @@ export async function GET(
 
   const { id } = await context.params;
   const prodId = Number(id);
-  const product = await queryOne(`SELECT * FROM products WHERE id = ?`, prodId);
+  // An admin edit must see the current product, not a cached pre-update row.
+  const product = await queryOne(`SELECT * FROM products WHERE id = ? AND CURRENT_TIMESTAMP IS NOT NULL`, prodId);
   if (!product) {
     return NextResponse.json({ error: "المنتج غير موجود." }, { status: 404 });
   }
 
   const [images, attrRows] = await Promise.all([
     queryAll(
-      `SELECT id, url, alt_text, sort_order, is_primary FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC`,
+      `SELECT id, url, alt_text, sort_order, is_primary FROM product_images WHERE product_id = ? AND CURRENT_TIMESTAMP IS NOT NULL ORDER BY sort_order ASC, id ASC`,
       prodId
     ),
     queryAll<{ attribute_value_id: number }>(
-      `SELECT attribute_value_id FROM product_attribute_values WHERE product_id = ?`,
+      `SELECT attribute_value_id FROM product_attribute_values WHERE product_id = ? AND CURRENT_TIMESTAMP IS NOT NULL`,
       prodId
     ),
   ]);

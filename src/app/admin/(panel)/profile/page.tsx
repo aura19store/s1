@@ -15,6 +15,21 @@ export default function AdminProfilePage() {
   const [loading, setLoading] = useState(!identity);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
+  const lastIdentity = useRef(identity?.user);
+  useEffect(() => {
+    if (!identity) return;
+    const previous = lastIdentity.current;
+    const currentUser = identity.user;
+    if (!previous || previous.id !== currentUser.id) {
+      setName(currentUser.name); setEmail(currentUser.email);
+      setCurrent(""); setPassword(""); setConfirm("");
+    } else {
+      // Do not overwrite edits the user has already made in the form.
+      setName(value => value === previous.name ? currentUser.name : value);
+      setEmail(value => value === previous.email ? currentUser.email : value);
+    }
+    lastIdentity.current = currentUser;
+  }, [identity?.user.id, identity?.user.name, identity?.user.email]);
   useEffect(() => {
     if (identity) return;
     let live = true;
