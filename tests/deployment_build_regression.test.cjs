@@ -79,7 +79,66 @@ test('official config uses the verified build hook and deployment does not build
   const config = fs.readFileSync(path.join(root, 'wrangler.jsonc'), 'utf8');
   assert.match(config, /"build"\s*:\s*\{\s*"command"\s*:\s*"node scripts\/cloudflare-build-verified\.cjs"\s*\}/);
   assert.match(config, /"main"\s*:\s*"\.open-next\/worker\.js"/);
-  assert.equal(require('../package.json').scripts['deploy:cloudflare'], 'OPEN_NEXT_DEPLOY=true wrangler deploy');
+  assert.equal(require('../package.json').scripts['deploy:cloudflare'], 'node scripts/cloudflare-deploy.cjs');
+});
+
+test('npm deploy command invokes the local Wrangler entry with a portable environment and propagates failure', () => {
+  const f = fixture();
+  try {
+    f.write('package.json', JSON.stringify({ private: true, scripts: { 'deploy:cloudflare': require('../package.json').scripts['deploy:cloudflare'] } }));
+    f.write('scripts/cloudflare-deploy.cjs', fs.readFileSync(path.join(root, 'scripts/cloudflare-deploy.cjs')));
+    f.write('node_modules/wrangler/bin/wrangler.js', `
+      const fs = require('node:fs');
+      fs.writeFileSync('wrangler-call.json', JSON.stringify({ args: process.argv.slice(2), openNext: process.env.OPEN_NEXT_DEPLOY }));
+      process.exit(Number(process.env.FAKE_WRANGLER_EXIT || 0));
+    `);
+    for (const code of [0, 19]) {
+      // Only the fake executable above is reachable; no Cloudflare action occurs.
+      const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'deploy:cloudflare', '--', '--example-flag'], {
+        cwd: f.dir, env: { ...process.env, FAKE_WRANGLER_EXIT: String(code) },
+        shell: process.platform === 'win32', encoding: 'utf8', timeout: 20000,
+      });
+      assert.equal(result.status, code, result.stdout + result.stderr);
+      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.dir, 'wrangler-call.json'), 'utf8')), {
+        args: ['deploy', '--example-flag'], openNext: 'true',
+      });
+    }
+  } finally { f.cleanup(); }
+});
+
+test('npm wrapper stops on build or artifact verification failure without reaching simulated upload', () => {
+  const f = fixture();
+  try {
+    f.write('package.json', JSON.stringify({ private: true, scripts: { 'deploy:cloudflare': require('../package.json').scripts['deploy:cloudflare'] } }));
+    for (const script of ['cloudflare-deploy.cjs', 'cloudflare-build-verified.cjs']) {
+      f.write(`scripts/${script}`, fs.readFileSync(path.join(root, 'scripts', script)));
+    }
+    // This is a fake Wrangler: its only "upload" is a local marker file.
+    f.write('node_modules/wrangler/bin/wrangler.js', `
+      const { spawnSync } = require('node:child_process');
+      const result = spawnSync(process.execPath, ['scripts/cloudflare-build-verified.cjs'], { stdio: 'inherit' });
+      if (result.status !== 0) process.exit(result.status || 1);
+      require('node:fs').writeFileSync('simulated-upload', 'unexpected');
+    `);
+    f.write('node_modules/@opennextjs/cloudflare/dist/cli/index.js', `
+      if (process.env.FAIL_MODE === 'build') process.exit(7);
+      const fs = require('node:fs');
+      fs.mkdirSync('.next', { recursive: true });
+      fs.writeFileSync('.next/BUILD_ID', 'build123');
+      // Report build success without producing the required OpenNext artifact.
+    `);
+    for (const mode of ['build', 'verify']) {
+      f.write('.open-next/worker.js', 'old artifact');
+      const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'deploy:cloudflare'], {
+        cwd: f.dir, env: { ...process.env, FAIL_MODE: mode },
+        shell: process.platform === 'win32', encoding: 'utf8', timeout: 20000,
+      });
+      assert.notEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stderr, mode === 'build' ? /OpenNext build failed/ : /Cloudflare build verification failed/);
+      assert.equal(fs.existsSync(path.join(f.dir, '.open-next/worker.js')), false);
+      assert.equal(fs.existsSync(path.join(f.dir, 'simulated-upload')), false);
+    }
+  } finally { f.cleanup(); }
 });
 
 test('installed Wrangler executes a failing custom build before starting dev, including with no-bundle', () => {
