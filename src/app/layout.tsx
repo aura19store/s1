@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getRenderStoreSettings as getStoreSettings } from "@/lib/store-render-queries";
 import { PwaInstall } from "@/components/store/PwaInstall";
-import splashDevices from "@/lib/pwa-splash-devices.json";
 
 export const dynamic = "force-dynamic";
 
@@ -46,16 +45,6 @@ export default function RootLayout({
         <link rel="icon" href="/icons/aura.svg" type="image/svg+xml" />
         <link rel="icon" href="/icons/aura-32.png" sizes="32x32" type="image/png" />
         <link rel="apple-touch-icon" href="/icons/aura-180.png" sizes="180x180" />
-        {splashDevices.flatMap(({ width, height, scale }) =>
-          (["portrait", "landscape"] as const).map((orientation) => (
-            <link
-              key={`${width}x${height}@${scale}-${orientation}`}
-              rel="apple-touch-startup-image"
-              href={`/splash/${width}x${height}@${scale}-${orientation}.png`}
-              media={`(device-width: ${width}px) and (device-height: ${height}px) and (-webkit-device-pixel-ratio: ${scale}) and (orientation: ${orientation})`}
-            />
-          ))
-        )}
         <meta name="application-name" content="AURA" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="AURA" />
