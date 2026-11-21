@@ -11,6 +11,7 @@
 @import "@fontsource/cormorant-garamond/400.css";
 @import "@fontsource/cormorant-garamond/500.css";
 @import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/ibm-plex-sans-arabic/400.css";
 
 @theme inline {
   --color-aura-black: #111111;
@@ -104,3 +105,51 @@ textarea {
   background-color: #B79B6C;
   color: #111111;
 }
+
+/* A lightweight, non-blocking opening scene for the first home document only. */
+.aura-entry-loading { min-height: 100vh; display: grid; place-items: center; color: #705f49; font-size: .875rem; }
+.aura-arrival { display: none; }
+html[data-aura-boot] .aura-arrival {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center;
+  overflow: hidden; pointer-events: none; font-family: "IBM Plex Sans Arabic", sans-serif;
+  background: radial-gradient(ellipse at 50% 35%, #faf5ec 0%, #e9dfd0 56%, #d8c6b1 100%);
+  animation: aura-scene-exit 1.35s ease-in-out both;
+}
+.aura-arrival-scene { position: relative; width: min(100vw, 980px); height: min(100svh, 760px); overflow: hidden; }
+.aura-arrival-halo {
+  position: absolute; left: 50%; top: 12%; width: min(74vw, 540px); aspect-ratio: 1; transform: translateX(-50%);
+  border: 1px solid rgba(151, 123, 82, .33); border-radius: 50%; box-shadow: 0 0 0 28px rgba(255, 250, 240, .13), 0 0 0 56px rgba(255, 250, 240, .1);
+}
+.aura-arrival-orbit {
+  position: absolute; z-index: 3; left: 50%; top: 20%; width: min(75vw, 510px); height: min(44vw, 300px);
+  border: 1px solid rgba(184, 150, 99, .7); border-radius: 50%; transform: translateX(-50%) rotate(-22deg);
+  animation: aura-orbit 1.25s cubic-bezier(.22, 1, .36, 1) both;
+}
+.aura-arrival-architecture {
+  position: absolute; left: 50%; bottom: 13%; width: min(53vw, 330px); height: min(65vh, 470px);
+  transform: translateX(-50%); background: linear-gradient(100deg, #c5ae91, #f7eee0 31%, #e5d7c4 68%, #bda788);
+  border-radius: 48% 48% 2px 2px; box-shadow: 24px 18px 55px rgba(96, 72, 50, .18), inset 0 0 0 1px rgba(255, 250, 243, .8);
+}
+.aura-arrival-doorway {
+  position: absolute; inset: 9% 13% 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .45rem;
+  overflow: hidden; border-radius: 48% 48% 0 0; color: #f4e7d2;
+  background: radial-gradient(ellipse at 50% 27%, #b8a27f 0%, #514638 43%, #211e1b 100%);
+  box-shadow: inset 0 0 35px rgba(29, 24, 20, .3), 0 1px 0 rgba(255, 255, 255, .3);
+}
+.aura-arrival-wordmark { font-family: "Cormorant Garamond", Georgia, serif; font-size: clamp(1.75rem, 5vw, 3.35rem); letter-spacing: .24em; padding-left: .24em; line-height: 1; animation: aura-inscription 1.15s ease-out both; }
+.aura-arrival-tagline { font-size: clamp(.72rem, 2.3vw, .95rem); letter-spacing: .02em; animation: aura-inscription 1.15s ease-out .12s both; }
+.aura-arrival-threshold { position: absolute; left: -12%; right: -12%; bottom: -1%; height: 3%; background: linear-gradient(#f7eee0, #ad977a); box-shadow: 0 11px 22px rgba(70, 53, 39, .2); }
+.aura-arrival-sphere {
+  position: absolute; z-index: 4; left: 15%; top: 24%; width: clamp(25px, 6vw, 57px); aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 30% 24%, #fff8e9 0%, #d1bd9c 28%, #8b765b 78%, #6c5b47 100%);
+  box-shadow: 8px 15px 25px rgba(95, 74, 49, .2); animation: aura-sphere 1.3s ease-out both;
+}
+.aura-arrival-plinth { position: absolute; bottom: 12%; height: 2%; background: linear-gradient(95deg, #c0aa8e, #f7ede0, #d1bba0); box-shadow: 0 15px 30px rgba(88, 67, 47, .16); }
+.aura-arrival-plinth-one { left: 5%; width: 26%; transform: translateY(-32px); }
+.aura-arrival-plinth-two { right: 6%; width: 23%; transform: translateY(15px); }
+@keyframes aura-scene-exit { 0%, 65% { opacity: 1; visibility: visible; } 100% { opacity: 0; visibility: hidden; } }
+@keyframes aura-inscription { 0%, 15% { opacity: 0; transform: translateY(8px); } 65%, 100% { opacity: 1; transform: translateY(0); } }
+@keyframes aura-orbit { from { transform: translateX(-50%) rotate(-28deg) scale(.96); opacity: .3; } to { transform: translateX(-50%) rotate(-22deg) scale(1); opacity: 1; } }
+@keyframes aura-sphere { from { transform: translateY(12px); } to { transform: translateY(0); } }
+html[data-aura-lite] .aura-arrival-orbit, html[data-aura-lite] .aura-arrival-sphere { animation: none; }
+@media (prefers-reduced-motion: reduce) { html[data-aura-boot] .aura-arrival { display: none; animation: none; } }

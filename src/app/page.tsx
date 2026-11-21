@@ -5,7 +5,33 @@ import { getRenderGenders as getGenders, getRenderStoreSettings as getStoreSetti
 
 export const dynamic = "force-dynamic";
 
-export default async function EntryPage() {
+export default function EntryPage() {
+  return <>
+    <ArrivalSplash />
+    <React.Suspense fallback={<div className="aura-entry-loading" role="status">جاري تحميل المتجر…</div>}><EntryContent /></React.Suspense>
+  </>;
+}
+
+function ArrivalSplash() {
+  return <div className="aura-arrival" aria-hidden="true" dir="rtl">
+    <div className="aura-arrival-scene">
+      <div className="aura-arrival-halo" />
+      <div className="aura-arrival-orbit" />
+      <div className="aura-arrival-architecture">
+        <div className="aura-arrival-doorway">
+          <span className="aura-arrival-wordmark" dir="ltr">AURA</span>
+          <span className="aura-arrival-tagline">أسلوبك ، هالتك</span>
+        </div>
+        <div className="aura-arrival-threshold" />
+      </div>
+      <div className="aura-arrival-sphere" />
+      <div className="aura-arrival-plinth aura-arrival-plinth-one" />
+      <div className="aura-arrival-plinth aura-arrival-plinth-two" />
+    </div>
+  </div>;
+}
+
+async function EntryContent() {
   const [settings, genders] = await Promise.all([
     getStoreSettings(),
     getGenders(),

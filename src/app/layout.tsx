@@ -36,8 +36,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ar" dir="rtl" style={{ backgroundColor: "#F7F4EF" }}>
+    <html lang="ar" dir="rtl" suppressHydrationWarning style={{ backgroundColor: "#F7F4EF" }}>
       <head>
+        {/* Initial home document only; the store loads underneath and the scene never blocks input. */}
+        <script dangerouslySetInnerHTML={{ __html: "if(location.pathname==='/'&&!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)){document.documentElement.dataset.auraBoot='';if(navigator.deviceMemory&&navigator.deviceMemory<=2)document.documentElement.dataset.auraLite='';setTimeout(function(){delete document.documentElement.dataset.auraBoot;delete document.documentElement.dataset.auraLite},1500)}" }} />
         {/* Static head tags must not be streamed into the body after metadata. */}
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.ico" sizes="any" />
