@@ -31,8 +31,7 @@ const checkoutSchema = z.object({
   city: z.string().trim().min(2, "يرجى إدخال المدينة أو المنطقة."),
   address: z.string().trim().min(5, "يرجى إدخال العنوان التفصيلي."),
   notes: z.string().trim().max(500).optional().default(""),
-  paymentMethod: z.string().trim().min(2, "يرجى اختيار طريقة الدفع."),
-  rewardGrantId: z.number().int().positive().optional(),
+  paymentMethod: z.string().trim().min(2, "يرجى اختيار طريقة الدفع.")
 });
 
 export async function POST(request: NextRequest) {
@@ -60,10 +59,6 @@ export async function POST(request: NextRequest) {
       const firstError =
         parsed.error.issues[0]?.message || "يرجى التحقق من جميع الحقول المطلوبة.";
       return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    if (parsed.data.rewardGrantId && !isSameOriginCustomerRequest(request)) {
-      return NextResponse.json({ error: "الطلب غير مسموح." }, { status: 403 });
     }
     const settings = await getStoreSettings();
     const enabledPaymentNames = settings.payment_methods
@@ -163,29 +158,11 @@ export async function POST(request: NextRequest) {
       settings.shipping_fee_iqd
     );
     const grossTotalIqd = subtotalIqd + shippingIqd;
-    if (parsed.data.rewardGrantId && !account) return NextResponse.json({ error: "يرجى تسجيل الدخول لاستخدام الرصيد." }, { status: 401 });
 
     const browser = browserTokenOrNew(request);
     const trackingSecret = newOrderSecret();
     const orderResult = await runTransaction(async (tx) => {
-      let creditUsedIqd = 0;
-      const grantId = parsed.data.rewardGrantId;
-      if (grantId && account) {
-        const grant = await tx.queryOne<{ remaining_iqd: number }>(
-          `SELECT remaining_iqd FROM aura_reward_grants WHERE id = ? AND auth_user_id = ? AND kind = 'credit' AND status = 'available'
-           AND remaining_iqd > 0 AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))${getDatabaseDriver() === "postgres" ? " FOR UPDATE" : ""}`,
-          grantId, account.id);
-        if (!grant) throw new Error("INVALID_REWARD_CREDIT");
-        creditUsedIqd = Math.min(grossTotalIqd, Number(grant.remaining_iqd));
-        if (creditUsedIqd <= 0) throw new Error("INVALID_REWARD_CREDIT");
-        const debit = await tx.execute(`UPDATE aura_reward_grants SET remaining_iqd = remaining_iqd - ?,
-          status = CASE WHEN remaining_iqd = ? THEN 'used' ELSE 'available' END, used_at = datetime('now')
-          WHERE id = ? AND auth_user_id = ? AND status = 'available' AND remaining_iqd >= ?
-            AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`,
-          creditUsedIqd, creditUsedIqd, grantId, account.id, creditUsedIqd);
-        if (debit.changes !== 1) throw new Error("INVALID_REWARD_CREDIT");
-      }
-      const totalIqd = grossTotalIqd - creditUsedIqd;
+      const totalIqd = grossTotalIqd;
       // Upsert Customer
       const existingCustomer = await tx.queryOne<{ id: number }>(
         `SELECT id FROM customers WHERE phone = ?`,
@@ -244,9 +221,6 @@ export async function POST(request: NextRequest) {
         return result.changes;
       });
       await addOrderAccess(tx, orderId, browser, trackingSecret);
-      if (creditUsedIqd > 0 && grantId) await tx.execute(
-        `INSERT INTO aura_reward_credit_uses (grant_id, order_id, amount_iqd) VALUES (?, ?, ?)`, grantId, orderId, creditUsedIqd
-      );
       if (account?.email) {
         // Link only this new authenticated order, never historical guest orders.
         await tx.execute(
@@ -293,7 +267,7 @@ export async function POST(request: NextRequest) {
       // Clear cart
       await tx.execute(`DELETE FROM cart_items WHERE cart_id = ?`, cart.id);
 
-      return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd, creditUsedIqd };
+      return { orderId, orderNumber, totalIqd, shippingIqd, subtotalIqd };
     });
 
     const response = NextResponse.json({

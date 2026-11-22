@@ -34,7 +34,6 @@ const DB_PATH = path.join(DB_DIR, "aura.db");
 const TABLES_WITHOUT_ID = new Set([
   "product_attribute_values",
   "product_collections",
-  "aura_reward_order_exclusions",
   "guest_order_credentials",
   "guest_order_access",
 ]);

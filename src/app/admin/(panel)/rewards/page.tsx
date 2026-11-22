@@ -1,47 +1,546 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { formatIQD } from "@/lib/format";
 
-const kindLabels: Record<string, string> = { credit: "رصيد", necklace: "عقد", bracelet: "سوار", watch: "ساعة", wallet: "محفظة", bag: "حقيبة" };
-const rewardStatusLabels: Record<string, string> = { available: "متاحة", revoked: "مُبطلة", used: "مستخدمة", expired: "منتهية", pending: "قيد الانتظار", active: "مفعّلة" };
-type Kind = keyof typeof kindLabels;
-type Definition = { id: number; name: string; kind: Kind; credit_iqd: number; stock_quantity: number | null; low_stock_threshold: number; expiry_days: number | null; sequence_position: number; active: number };
-type Snapshot = { settings: { enabled: number; qualifying_subtotal_iqd: number; required_orders: number }; definitions: Definition[]; progress: { auth_user_id: string; email: string; display_name: string; completed: number; required: number }[]; grants: { id: number; email: string; reward_name: string; kind: string; status: string; granted_at: string; expires_at: string | null; remaining_iqd: number }[] };
-const input = "w-full border border-[#D8C8B5] px-3 py-2 bg-white text-sm";
+type PrizeKind = "credit" | "product" | "gift";
+
+type Prize = {
+  id: number;
+  name: string;
+  kind: PrizeKind;
+  value_iqd: number;
+  image_url: string | null;
+  probability: number;
+  stock_quantity: number | null;
+  active: number;
+  sequence_position: number;
+};
+
+type Snapshot = {
+  settings: {
+    id: number;
+    enabled: number;
+    required_orders: number;
+    updated_at: string;
+  };
+  prizes: Prize[];
+  probabilityTotal: number;
+  probabilityValid: boolean;
+};
+
+const input =
+  "w-full border border-[#D8C8B5] px-3 py-2 bg-white text-sm";
+
+const kindLabels: Record<PrizeKind, string> = {
+  credit: "رصيد مالي",
+  product: "منتج",
+  gift: "هدية",
+};
 
 export default function RewardsAdminPage() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [returnedOrderId, setReturnedOrderId] = useState("");
-  const [enabled, setEnabled] = useState(false), [minimum, setMinimum] = useState("15000"), [required, setRequired] = useState("5");
-  const [id, setId] = useState<number | null>(null), [name, setName] = useState(""), [kind, setKind] = useState<Kind>("credit");
-  const [credit, setCredit] = useState("5000"), [stock, setStock] = useState("0"), [threshold, setThreshold] = useState("5");
-  const [expiry, setExpiry] = useState(""), [position, setPosition] = useState("0"), [active, setActive] = useState(true);
+
+  const [enabled, setEnabled] = useState(false);
+  const [required, setRequired] = useState("5");
+
+  const [id, setId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<PrizeKind>("credit");
+  const [value, setValue] = useState("5000");
+  const [imageUrl, setImageUrl] = useState("");
+  const [probability, setProbability] = useState("10");
+  const [stock, setStock] = useState("");
+  const [position, setPosition] = useState("0");
+  const [active, setActive] = useState(true);
+
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/admin/rewards", { cache: "no-store" }); const json = await r.json();
-      if (!r.ok) { setMessage(json.error || "تعذر تحميل المكافآت."); return; }
-      setData(json); setEnabled(Number(json.settings.enabled) === 1); setMinimum(String(json.settings.qualifying_subtotal_iqd)); setRequired(String(json.settings.required_orders));
-    } catch { setMessage("تعذر الاتصال بالخادم."); }
+      const response = await fetch(
+        "/api/admin/rewards",
+        { cache: "no-store" }
+      );
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          json.error || "تعذر تحميل إعدادات العجلة."
+        );
+        return;
+      }
+
+      setData(json);
+      setEnabled(Number(json.settings.enabled) === 1);
+      setRequired(
+        String(json.settings.required_orders)
+      );
+    } catch {
+      setMessage("تعذر الاتصال بخدمة الإدارة.");
+    }
   }, []);
-  useEffect(() => { void load(); }, [load]);
-  const save = async (body: Record<string, unknown>) => {
-    setBusy(true); setMessage("");
-    try { const r = await fetch("/api/admin/rewards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const json = await r.json(); setMessage(r.ok ? json.message : json.error || "تعذر الحفظ."); if (r.ok) await load(); }
-    catch { setMessage("تعذر الاتصال بالخادم."); } finally { setBusy(false); }
-  };
-  const edit = (r: Definition) => { setId(Number(r.id)); setName(r.name); setKind(r.kind); setCredit(String(r.credit_iqd)); setStock(String(r.stock_quantity ?? 0)); setThreshold(String(r.low_stock_threshold)); setExpiry(r.expiry_days == null ? "" : String(r.expiry_days)); setPosition(String(r.sequence_position)); setActive(Number(r.active) === 1); };
-  const clear = () => { setId(null); setName(""); setKind("credit"); setCredit("5000"); setStock("0"); setThreshold("5"); setExpiry(""); setPosition("0"); setActive(true); };
-  return <div className="space-y-8" dir="rtl"><h1 className="font-editorial text-3xl">مكافآت AURA ✨</h1>{message && <p role="status" className="border border-[#D8C8B5] p-3 text-sm">{message}</p>}
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">إعدادات البرنامج</h2><form className="grid gap-4 md:grid-cols-3" onSubmit={e => { e.preventDefault(); void save({ action: "settings", enabled, minimumIqd: Number(minimum), requiredOrders: Number(required) }); }}><label className="text-sm">الحد الأدنى لصافي المنتجات د.ع<input className={input} type="number" min="0" value={minimum} onChange={e => setMinimum(e.target.value)} required /></label><label className="text-sm">عدد الطلبات المطلوبة<input className={input} type="number" min="1" value={required} onChange={e => setRequired(e.target.value)} required /></label><label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} /> البرنامج مفعّل</label><button disabled={busy} className="bg-[#111111] text-white px-5 py-2 text-sm">حفظ الإعدادات</button></form></section>
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">{id ? "تعديل مكافأة" : "إضافة مكافأة"}</h2><form className="grid gap-4 md:grid-cols-3" onSubmit={e => { e.preventDefault(); void save({ action: id ? "update" : "create", ...(id ? { id } : {}), reward: { name, kind, creditIqd: kind === "credit" ? Number(credit) : 0, stockQuantity: kind === "credit" ? null : Number(stock), lowStockThreshold: Number(threshold), expiryDays: expiry ? Number(expiry) : null, sequencePosition: Number(position), active } }); }}>
-      <label className="text-sm">الاسم<input className={input} value={name} onChange={e => setName(e.target.value)} required maxLength={100} /></label><label className="text-sm">النوع<select className={input} value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kindLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      {kind === "credit" ? <label className="text-sm">الرصيد د.ع<input className={input} type="number" min="1" value={credit} onChange={e => setCredit(e.target.value)} required /></label> : <label className="text-sm">المخزون<input className={input} type="number" min="0" value={stock} onChange={e => setStock(e.target.value)} required /></label>}
-      <label className="text-sm">حد التنبيه للمخزون<input className={input} type="number" min="0" value={threshold} onChange={e => setThreshold(e.target.value)} required /></label><label className="text-sm">مدة الصلاحية بالأيام (اختياري)<input className={input} type="number" min="1" value={expiry} onChange={e => setExpiry(e.target.value)} /></label><label className="text-sm">الترتيب المحدد مسبقًا<input className={input} type="number" min="0" value={position} onChange={e => setPosition(e.target.value)} required /></label><label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} /> مفعّلة</label><button disabled={busy} className="bg-[#111111] text-white px-5 py-2 text-sm">حفظ المكافأة</button>{id && <button type="button" onClick={clear} className="text-sm underline">إلغاء التعديل</button>}</form></section>
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">المكافآت وترتيبها</h2><div className="space-y-3">{data?.definitions.map(r => <div key={r.id} className="border-b py-3 text-sm flex flex-wrap justify-between gap-3"><span>{r.name} · {kindLabels[r.kind]} · الترتيب {r.sequence_position}{r.kind !== "credit" ? ` · المخزون ${r.stock_quantity}${Number(r.stock_quantity) <= Number(r.low_stock_threshold) ? " — مخزون منخفض" : ""}` : ` · ${r.credit_iqd} د.ع`} · {Number(r.active) ? "مفعّلة" : "معطلة"}</span><span className="flex gap-3"><button onClick={() => edit(r)} className="underline">تعديل</button><button disabled={busy} onClick={() => { if (window.confirm("حذف المكافأة إن لم تكن مرتبطة بسجل؟")) void save({ action: "delete", id: Number(r.id) }); }} className="underline">حذف</button></span></div>)}</div></section>
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">استثناء طلب مرتجع من المكافآت</h2><p className="text-sm mb-3">هذه العملية تخص الأهلية فقط ولا تغيّر حالة الطلب أو تُنفّذ استردادًا. تتطلب صلاحية الطلبات ورقم الطلب الداخلي.</p><form className="flex gap-3" onSubmit={async e => { e.preventDefault(); if (!window.confirm("استثناء الطلب من المكافآت؟")) return; setBusy(true); try { const r = await fetch(`/api/admin/orders/${Number(returnedOrderId)}/reward-return`, { method: "POST" }); const j = await r.json(); setMessage(r.ok ? j.message : j.error); if (r.ok) await load(); } catch { setMessage("تعذر الاتصال بالخادم."); } finally { setBusy(false); } }}><input className={input} type="number" min="1" required value={returnedOrderId} onChange={e => setReturnedOrderId(e.target.value)} placeholder="رقم الطلب الداخلي" /><button disabled={busy} className="bg-[#111111] text-white px-5 text-sm">استثناء</button></form></section>
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">تقدم العملاء</h2><div className="space-y-3">{data?.progress.map(p => <div key={p.auth_user_id} className="border-b py-3 text-sm flex flex-wrap justify-between gap-3"><span>{p.display_name || p.email} · {p.completed} / {p.required}</span><button disabled={busy} onClick={() => { if (window.confirm("إعادة ضبط تقدم هذا العميل؟")) void save({ action: "reset", accountId: p.auth_user_id }); }} className="underline">إعادة ضبط</button></div>)}</div></section>
-    <section className="bg-white border border-[#D8C8B5] p-6"><h2 className="font-semibold mb-4">سجل المكافآت</h2><div className="space-y-3">{data?.grants.map(g => <div key={g.id} className="border-b py-3 text-sm flex flex-wrap justify-between gap-3"><span>{g.email} · {g.reward_name} · {g.status === "available" && g.expires_at && new Date(g.expires_at).getTime() <= Date.now() ? "منتهية" : rewardStatusLabels[g.status] || "غير معروفة"} · {new Date(g.granted_at).toLocaleDateString("ar-IQ")} · المتبقي {g.remaining_iqd} د.ع</span><span className="flex gap-3">{g.kind !== "credit" && <button disabled={busy || g.status !== "available"} onClick={() => { if (window.confirm("تأكيد تسليم المكافأة المادية؟")) void save({ action: "fulfill", id: Number(g.id) }); }} className="underline disabled:opacity-40">تأكيد التسليم</button>}<button disabled={busy || g.status !== "available"} onClick={() => { if (window.confirm("إبطال المكافأة غير المستخدمة؟")) void save({ action: "revoke", id: Number(g.id) }); }} className="underline disabled:opacity-40">إبطال</button></span></div>)}</div></section>
-  </div>;
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save(body: Record<string, unknown>) {
+    setBusy(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/rewards",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
+
+      const json = await response.json();
+
+      setMessage(
+        response.ok
+          ? json.message
+          : json.error || "تعذر حفظ التغييرات."
+      );
+
+      if (response.ok) {
+        await load();
+      }
+    } catch {
+      setMessage("تعذر الاتصال بخدمة الإدارة.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editPrize(prize: Prize) {
+    setId(Number(prize.id));
+    setName(prize.name);
+    setKind(prize.kind);
+    setValue(String(prize.value_iqd));
+    setImageUrl(prize.image_url || "");
+    setProbability(String(prize.probability));
+    setStock(
+      prize.stock_quantity == null
+        ? ""
+        : String(prize.stock_quantity)
+    );
+    setPosition(String(prize.sequence_position));
+    setActive(Number(prize.active) === 1);
+  }
+
+  function clearForm() {
+    setId(null);
+    setName("");
+    setKind("credit");
+    setValue("5000");
+    setImageUrl("");
+    setProbability("10");
+    setStock("");
+    setPosition("0");
+    setActive(true);
+  }
+
+  const probabilityTotal =
+    data?.probabilityTotal ?? 0;
+
+  const probabilityValid =
+    data?.probabilityValid ?? false;
+
+  return (
+    <div
+      className="space-y-8"
+      dir="rtl"
+    >
+      <div>
+        <h1 className="font-editorial text-3xl">
+          عجلة المكافآت
+        </h1>
+
+        <p className="text-sm text-[#111111]/65 mt-2">
+          إدارة المكافآت واحتمالات الفوز للعملاء.
+        </p>
+      </div>
+
+      {message && (
+        <p
+          role="status"
+          className="border border-[#D8C8B5] p-3 text-sm"
+        >
+          {message}
+        </p>
+      )}
+
+      <section className="bg-white border border-[#D8C8B5] p-6">
+        <h2 className="font-semibold mb-4">
+          إعدادات العجلة
+        </h2>
+
+        <form
+          className="grid gap-4 md:grid-cols-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+
+            void save({
+              action: "settings",
+              enabled,
+              requiredOrders: Number(required),
+            });
+          }}
+        >
+          <label className="text-sm">
+            عدد الطلبات المسلّمة المطلوبة
+
+            <input
+              className={input}
+              type="number"
+              min="1"
+              max="1000"
+              value={required}
+              onChange={(event) =>
+                setRequired(event.target.value)
+              }
+              required
+            />
+          </label>
+
+          <label className="text-sm flex gap-2 items-center">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) =>
+                setEnabled(event.target.checked)
+              }
+            />
+
+            العجلة مفعّلة
+          </label>
+
+          <button
+            disabled={busy}
+            className="bg-[#111111] text-white px-5 py-2 text-sm disabled:opacity-50"
+          >
+            حفظ الإعدادات
+          </button>
+        </form>
+      </section>
+
+      <section className="bg-white border border-[#D8C8B5] p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+          <div>
+            <h2 className="font-semibold">
+              مجموع الاحتمالات
+            </h2>
+
+            <p className="text-sm text-[#111111]/65 mt-1">
+              يجب أن يكون مجموع الجوائز الفعالة 100٪ بالضبط.
+            </p>
+          </div>
+
+          <div
+            className={
+              probabilityValid
+                ? "text-sm font-semibold"
+                : "text-sm font-semibold text-red-700"
+            }
+          >
+            {probabilityTotal.toFixed(2)}٪
+            {probabilityValid
+              ? " — صحيح"
+              : " — غير مكتمل"}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white border border-[#D8C8B5] p-6">
+        <h2 className="font-semibold mb-4">
+          {id
+            ? "تعديل مكافأة"
+            : "إضافة مكافأة جديدة"}
+        </h2>
+
+        <form
+          className="grid gap-4 md:grid-cols-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+
+            void save({
+              action: id ? "update" : "create",
+              ...(id ? { id } : {}),
+              prize: {
+                name,
+                kind,
+                valueIqd:
+                  kind === "credit"
+                    ? Number(value)
+                    : 0,
+                imageUrl:
+                  imageUrl.trim() || null,
+                probability: Number(probability),
+                stockQuantity:
+                  stock.trim() === ""
+                    ? null
+                    : Number(stock),
+                sequencePosition: Number(position),
+                active,
+              },
+            });
+          }}
+        >
+          <label className="text-sm">
+            اسم المكافأة
+
+            <input
+              className={input}
+              value={name}
+              onChange={(event) =>
+                setName(event.target.value)
+              }
+              maxLength={100}
+              required
+            />
+          </label>
+
+          <label className="text-sm">
+            نوع المكافأة
+
+            <select
+              className={input}
+              value={kind}
+              onChange={(event) =>
+                setKind(
+                  event.target.value as PrizeKind
+                )
+              }
+            >
+              {Object.entries(kindLabels).map(
+                ([key, label]) => (
+                  <option
+                    key={key}
+                    value={key}
+                  >
+                    {label}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="text-sm">
+            {kind === "credit"
+              ? "قيمة المكافأة بالدينار"
+              : "القيمة المالية"}
+
+            <input
+              className={input}
+              type="number"
+              min={kind === "credit" ? "1" : "0"}
+              value={
+                kind === "credit"
+                  ? value
+                  : "0"
+              }
+              onChange={(event) =>
+                setValue(event.target.value)
+              }
+              disabled={kind !== "credit"}
+              required
+            />
+          </label>
+
+          <label className="text-sm">
+            احتمال الفوز ٪
+
+            <input
+              className={input}
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={probability}
+              onChange={(event) =>
+                setProbability(event.target.value)
+              }
+              required
+            />
+          </label>
+
+          <label className="text-sm">
+            المخزون
+
+            <input
+              className={input}
+              type="number"
+              min="0"
+              max="1000000"
+              placeholder="فارغ = غير محدود"
+              value={stock}
+              onChange={(event) =>
+                setStock(event.target.value)
+              }
+            />
+          </label>
+
+          <label className="text-sm">
+            ترتيب الظهور
+
+            <input
+              className={input}
+              type="number"
+              min="0"
+              value={position}
+              onChange={(event) =>
+                setPosition(event.target.value)
+              }
+              required
+            />
+          </label>
+
+          <label className="text-sm">
+            رابط صورة المكافأة
+
+            <input
+              className={input}
+              value={imageUrl}
+              onChange={(event) =>
+                setImageUrl(event.target.value)
+              }
+              placeholder="اختياري"
+              maxLength={2000}
+            />
+          </label>
+
+          <label className="text-sm flex gap-2 items-center">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(event) =>
+                setActive(event.target.checked)
+              }
+            />
+
+            المكافأة فعّالة
+          </label>
+
+          <div className="flex items-center gap-3">
+            <button
+              disabled={busy}
+              className="bg-[#111111] text-white px-5 py-2 text-sm disabled:opacity-50"
+            >
+              {id
+                ? "حفظ التعديل"
+                : "إضافة المكافأة"}
+            </button>
+
+            {id && (
+              <button
+                type="button"
+                onClick={clearForm}
+                className="text-sm underline"
+              >
+                إلغاء التعديل
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+
+      <section className="bg-white border border-[#D8C8B5] p-6">
+        <h2 className="font-semibold mb-4">
+          الجوائز الحالية
+        </h2>
+
+        <div className="space-y-3">
+          {data?.prizes.length === 0 ? (
+            <p className="text-sm text-[#111111]/65">
+              لا توجد جوائز مضافة حتى الآن.
+            </p>
+          ) : (
+            data?.prizes.map((prize) => (
+              <div
+                key={prize.id}
+                className="border-b border-[#D8C8B5]/50 py-4 flex flex-wrap justify-between gap-4"
+              >
+                <div className="text-sm space-y-1">
+                  <p className="font-semibold">
+                    {prize.name}
+                  </p>
+
+                  <p className="text-[#111111]/65">
+                    {kindLabels[prize.kind]}
+                    {" · "}
+                    الاحتمال:{" "}
+                    {Number(prize.probability).toFixed(2)}
+                    ٪
+                  </p>
+
+                  {prize.kind === "credit" && (
+                    <p>
+                      القيمة:{" "}
+                      {formatIQD(
+                        Number(prize.value_iqd)
+                      )}
+                    </p>
+                  )}
+
+                  <p>
+                    المخزون:{" "}
+                    {prize.stock_quantity == null
+                      ? "غير محدود"
+                      : prize.stock_quantity}
+                  </p>
+
+                  <p>
+                    الحالة:{" "}
+                    {Number(prize.active) === 1
+                      ? "فعّالة"
+                      : "متوقفة"}
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-4 text-sm">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      editPrize(prize)
+                    }
+                    className="underline"
+                  >
+                    تعديل
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "هل تريد حذف هذه المكافأة؟"
+                        )
+                      ) {
+                        void save({
+                          action: "delete",
+                          id: Number(prize.id),
+                        });
+                      }
+                    }}
+                    className="underline disabled:opacity-40"
+                  >
+                    حذف
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
