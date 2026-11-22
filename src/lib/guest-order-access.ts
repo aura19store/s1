@@ -36,6 +36,18 @@ export async function findBrowserOrder(number: string, browser: string | null) {
     `SELECT o.id, o.order_number, o.customer_name, o.governorate, o.city, o.payment_method, o.subtotal_iqd, o.discount_iqd, o.shipping_iqd, o.total_iqd, o.status, o.created_at
      FROM orders o JOIN guest_order_access a ON a.order_id = o.id WHERE o.order_number = ? AND a.browser_hash = ? AND CURRENT_TIMESTAMP IS NOT NULL`, number, hashToken(browser));
 }
+export async function findTrackedOrder(number: string, browser: string | null) {
+  if (!browser || number.length > 80) return null;
+  return queryOne<{ id: number; order_number: string; customer_name: string; governorate: string; city: string; payment_method: string; subtotal_iqd: number; discount_iqd: number; shipping_iqd: number; total_iqd: number; status: string; created_at: string }>(
+    `SELECT o.id, o.order_number, o.customer_name, o.governorate, o.city, o.payment_method, o.subtotal_iqd, o.discount_iqd, o.shipping_iqd, o.total_iqd, o.status, o.created_at
+     FROM orders o
+     JOIN guest_order_tracking_sessions t ON t.order_id = o.id
+     WHERE o.order_number = ? AND t.browser_hash = ? AND t.expires_at > CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP IS NOT NULL`,
+    number,
+    hashToken(browser)
+  );
+}
+
 export async function listBrowserOrders(browser: string | null) {
   if (!browser) return [];
   return queryAll<{order_number: string; status: string; total_iqd: number; created_at: string}>(
