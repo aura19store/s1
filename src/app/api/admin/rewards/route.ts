@@ -185,6 +185,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      let changedPrizeId: number | null = null;
       if (data.action === "create") {
         const prize = data.prize;
 
@@ -214,7 +215,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        await tx.execute(
+        const insertResult = await tx.execute(
           `INSERT INTO aura_wheel_prizes
              (name, kind, value_iqd, image_url, probability,
               stock_quantity, active, sequence_position)
@@ -228,6 +229,8 @@ export async function POST(request: NextRequest) {
           Number(prize.active),
           prize.sequencePosition
         );
+
+        changedPrizeId = Number(insertResult.lastInsertRowid);
       }
 
       if (data.action === "update") {
@@ -288,6 +291,7 @@ export async function POST(request: NextRequest) {
             404
           );
         }
+        changedPrizeId = data.id;
       }
 
       if (data.action === "delete") {
@@ -303,6 +307,7 @@ export async function POST(request: NextRequest) {
             404
           );
         }
+        changedPrizeId = data.id;
       }
 
       const total = await tx.queryOne<{ total: number | null }>(
@@ -334,8 +339,9 @@ export async function POST(request: NextRequest) {
         probabilityValid: isExactlyHundred(
           probabilityTotal
         ),
-      });
+        changedPrizeId,
     });
+      });
   } catch (error) {
     if (error instanceof Error && error.message === "WHEEL_PROBABILITY_INVALID") {
       return reply(

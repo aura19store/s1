@@ -104,15 +104,96 @@ export default function RewardsAdminPage() {
 
       const json = await response.json();
 
-      setMessage(
-        response.ok
-          ? json.message
-          : json.error || "تعذر حفظ التغييرات."
-      );
-
-      if (response.ok) {
-        await load();
+      if (!response.ok) {
+        setMessage(json.error || "تعذر حفظ التغييرات.");
+        return;
       }
+
+      setMessage(json.message);
+
+      const action = String(body.action || "");
+      const prizePayload = body.prize as {
+        name: string;
+        kind: PrizeKind;
+        valueIqd: number;
+        imageUrl: string | null;
+        probability: number;
+        stockQuantity: number | null;
+        sequencePosition: number;
+        active: boolean;
+      } | undefined;
+
+      setData((current) => {
+        if (!current) return current;
+
+        if (action === "settings") {
+          return {
+            ...current,
+            settings: {
+              ...current.settings,
+              enabled: Boolean(body.enabled) ? 1 : 0,
+              required_orders: Number(body.requiredOrders),
+            },
+          };
+        }
+
+        const probabilityTotal =
+          typeof json.probabilityTotal === "number"
+            ? json.probabilityTotal
+            : current.probabilityTotal;
+        const probabilityValid =
+          typeof json.probabilityValid === "boolean"
+            ? json.probabilityValid
+            : current.probabilityValid;
+
+        if (action === "delete") {
+          const deletedId = Number(body.id);
+          return {
+            ...current,
+            prizes: current.prizes.filter(
+              (prize) => Number(prize.id) !== deletedId
+            ),
+            probabilityTotal,
+            probabilityValid,
+          };
+        }
+
+        if (!prizePayload) return current;
+
+        const prizeId = Number(
+          json.changedPrizeId ?? body.id
+        );
+        const nextPrize: Prize = {
+          id: prizeId,
+          name: prizePayload.name,
+          kind: prizePayload.kind,
+          value_iqd: Number(prizePayload.valueIqd),
+          image_url: prizePayload.imageUrl,
+          probability: Number(prizePayload.probability),
+          stock_quantity: prizePayload.stockQuantity == null ? null : Number(prizePayload.stockQuantity),
+          active: prizePayload.active ? 1 : 0,
+          sequence_position: Number(prizePayload.sequencePosition),
+        };
+
+        const prizes = action === "create"
+          ? [...current.prizes, nextPrize]
+          : current.prizes.map((prize) =>
+              Number(prize.id) === prizeId ? nextPrize : prize
+            );
+
+        prizes.sort(
+          (a, b) =>
+            Number(a.sequence_position) - Number(b.sequence_position) ||
+            Number(a.id) - Number(b.id)
+        );
+
+        return {
+          ...current,
+          prizes,
+          probabilityTotal,
+          probabilityValid,
+        };
+      });
     } catch {
       setMessage("تعذر الاتصال بخدمة الإدارة.");
     } finally {
