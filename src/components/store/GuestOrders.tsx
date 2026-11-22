@@ -54,7 +54,15 @@ export function GuestOrders({ gender }: { gender: string }) {
       ) : loading ? (
         <p>جاري تحميل الطلبات…</p>
       ) : orders.length === 0 ? (
-        <p>لا توجد طلبات. يمكنك تتبع طلب باستخدام رقم الطلب ورمز التتبع.</p>
+        <div className="space-y-4">
+          <p>لا توجد طلبات. يمكنك تتبع طلب باستخدام رقم الطلب ورمز التتبع.</p>
+          <Link
+            className="inline-flex min-h-11 items-center justify-center bg-[#111111] text-[#F7F4EF] px-5"
+            href={`/store/${gender}/track-order`}
+          >
+            تتبع طلب برقم الطلب ورمز التتبع
+          </Link>
+        </div>
       ) : (
         <ul className="grid sm:grid-cols-2 gap-4">
           {orders.map((order) => (
