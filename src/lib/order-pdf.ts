@@ -25,7 +25,8 @@ export async function createOrderPdf(order: PdfOrder, items: PdfOrderItem[], fon
   // jsPDF's Arabic shaping/bidi processing handles mixed scripts itself;
   // setR2L(true) additionally reverses Latin order numbers and phone digits.
   doc.setR2L(false);
-  const right = 195, left = 15, bottom = 280;
+  doc.setProperties({ title: `AURA - ${order.order_number}`, subject: 'تفاصيل الطلب' });
+  const right = 195, left = 15, bottom = 276;
   let y = 20;
   const ink = () => doc.setTextColor(35, 32, 28);
   const text = (value: string, x: number, yy: number, size = 10, align: "right" | "left" | "center" = "right") => {
