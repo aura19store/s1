@@ -58,7 +58,7 @@ export function GuestTrackOrder({ gender }: { gender: string }) {
           />
         </label>
         <label className="block text-sm">
-          ر�iز التتبع
+          رمز التتبع
           <input
             required
             maxLength={64}
