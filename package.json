@@ -11,6 +11,9 @@
     "seed": "npx tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/cli": "^8.6.3",
+    "@capacitor/core": "^8.6.3",
     "@fontsource/alexandria": "^5.3.0",
     "@fontsource/amiri": "^5.2.5",
     "@fontsource/cormorant-garamond": "^5.2.5",

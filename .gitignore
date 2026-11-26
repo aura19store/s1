@@ -36,3 +36,4 @@ coverage
 # Local export archives
 /aura-project.zip
 /aura-postgresql-supabase-integration.zip
+.idea/
