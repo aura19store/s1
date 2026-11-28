@@ -80,7 +80,6 @@ async function getPublicWheelPrizes() {
     `SELECT id, name, kind, image_url, sequence_position
      FROM aura_wheel_prizes
      WHERE active = 1
-       AND (stock_quantity IS NULL OR stock_quantity > 0)
      ORDER BY sequence_position, id`
   );
 }
@@ -184,7 +183,7 @@ export async function GET(request: NextRequest) {
   } catch {
     return reply(
       {
-        error: "ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¹Ø¬Ù„Ø©.",
+        error: "Ã˜ÂªÃ˜Â¹Ã˜Â°Ã˜Â± Ã˜ÂªÃ˜Â­Ã™â€¦Ã™Å Ã™â€ž Ã˜Â¨Ã™Å Ã˜Â§Ã™â€ Ã˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â¬Ã™â€žÃ˜Â©.",
       },
       503
     );
@@ -195,7 +194,7 @@ export async function POST(request: NextRequest) {
   if (!isSameOriginCustomerRequest(request)) {
     return reply(
       {
-        error: "Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­.",
+        error: "Ã˜Â§Ã™â€žÃ˜Â·Ã™â€žÃ˜Â¨ Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜Â³Ã™â€¦Ã™Ë†Ã˜Â­.",
       },
       403
     );
@@ -206,7 +205,7 @@ export async function POST(request: NextRequest) {
   if (!browser) {
     return reply(
       {
-        error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¹Ù…ÙŠÙ„ Ù„Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨.",
+        error: "Ã™â€žÃ˜Â§ Ã™Å Ã™â€¦Ã™Æ’Ã™â€  Ã˜ÂªÃ˜Â­Ã˜Â¯Ã™Å Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜Â¹Ã™â€¦Ã™Å Ã™â€ž Ã™â€žÃ™â€¡Ã˜Â°Ã˜Â§ Ã˜Â§Ã™â€žÃ˜Â·Ã™â€žÃ˜Â¨.",
       },
       401
     );
@@ -237,7 +236,7 @@ export async function POST(request: NextRequest) {
       if (!enabled) {
         return reply(
           {
-            error: "Ø§Ù„Ø¹Ø¬Ù„Ø© ØºÙŠØ± Ù…ÙØ¹Ù„Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§.",
+            error: "Ã˜Â§Ã™â€žÃ˜Â¹Ã˜Â¬Ã™â€žÃ˜Â© Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã™ÂÃ˜Â¹Ã™â€žÃ˜Â© Ã˜Â­Ã˜Â§Ã™â€žÃ™Å Ã™â€¹Ã˜Â§.",
           },
           409
         );
@@ -266,7 +265,7 @@ export async function POST(request: NextRequest) {
       if (customerIds.length !== 1) {
         return reply(
           {
-            error: "Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø´ÙƒÙ„ Ø¢Ù…Ù† Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¯ÙˆØ±.",
+            error: "Ã™â€žÃ˜Â§ Ã™Å Ã™â€¦Ã™Æ’Ã™â€  Ã˜ÂªÃ˜Â­Ã˜Â¯Ã™Å Ã˜Â¯ Ã˜Â§Ã™â€žÃ˜Â¹Ã™â€¦Ã™Å Ã™â€ž Ã˜Â¨Ã˜Â´Ã™Æ’Ã™â€ž Ã˜Â¢Ã™â€¦Ã™â€  Ã™â€žÃ™â€¡Ã˜Â°Ã˜Â§ Ã˜Â§Ã™â€žÃ˜Â¯Ã™Ë†Ã˜Â±.",
           },
           409
         );
@@ -301,7 +300,7 @@ export async function POST(request: NextRequest) {
       if (availableSpins <= 0) {
         return reply(
           {
-            error: "Ù„Ø§ ØªÙˆØ¬Ø¯ Ù„Ø¯ÙŠÙƒ ÙØ±ØµØ© Ø¯ÙˆØ±Ø§Ù† Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§.",
+            error: "Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã™â€žÃ˜Â¯Ã™Å Ã™Æ’ Ã™ÂÃ˜Â±Ã˜ÂµÃ˜Â© Ã˜Â¯Ã™Ë†Ã˜Â±Ã˜Â§Ã™â€  Ã™â€¦Ã˜ÂªÃ˜Â§Ã˜Â­Ã˜Â© Ã˜Â­Ã˜Â§Ã™â€žÃ™Å Ã™â€¹Ã˜Â§.",
           },
           409
         );
@@ -312,14 +311,13 @@ export async function POST(request: NextRequest) {
                 stock_quantity, sequence_position
          FROM aura_wheel_prizes
          WHERE active = 1
-           AND (stock_quantity IS NULL OR stock_quantity > 0)
          ORDER BY sequence_position, id`
       );
 
       if (!prizes.length) {
         return reply(
           {
-            error: "Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¬ÙˆØ§Ø¦Ø² Ù…ØªØ§Ø­Ø© Ù„Ù„Ø¹Ø¬Ù„Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§.",
+            error: "Ã™â€žÃ˜Â§ Ã˜ÂªÃ™Ë†Ã˜Â¬Ã˜Â¯ Ã˜Â¬Ã™Ë†Ã˜Â§Ã˜Â¦Ã˜Â² Ã™â€¦Ã˜ÂªÃ˜Â§Ã˜Â­Ã˜Â© Ã™â€žÃ™â€žÃ˜Â¹Ã˜Â¬Ã™â€žÃ˜Â© Ã˜Â­Ã˜Â§Ã™â€žÃ™Å Ã™â€¹Ã˜Â§.",
           },
           409
         );
@@ -333,7 +331,7 @@ export async function POST(request: NextRequest) {
       if (totalProbability <= 0 || Math.abs(totalProbability - 100) > 0.0001) {
         return reply(
           {
-            error: "Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ø­ØªÙ…Ø§Ù„Ø§Øª Ø§Ù„Ø¬ÙˆØ§Ø¦Ø² ØºÙŠØ± ØµØ§Ù„Ø­Ø©.",
+            error: "Ã˜Â¥Ã˜Â¹Ã˜Â¯Ã˜Â§Ã˜Â¯Ã˜Â§Ã˜Âª Ã˜Â§Ã˜Â­Ã˜ÂªÃ™â€¦Ã˜Â§Ã™â€žÃ˜Â§Ã˜Âª Ã˜Â§Ã™â€žÃ˜Â¬Ã™Ë†Ã˜Â§Ã˜Â¦Ã˜Â² Ã˜ÂºÃ™Å Ã˜Â± Ã˜ÂµÃ˜Â§Ã™â€žÃ˜Â­Ã˜Â©.",
           },
           409
         );
@@ -344,7 +342,7 @@ export async function POST(request: NextRequest) {
       if (!prize) {
         return reply(
           {
-            error: "ØªØ¹Ø°Ø± Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø¬Ø§Ø¦Ø²Ø©.",
+            error: "Ã˜ÂªÃ˜Â¹Ã˜Â°Ã˜Â± Ã˜Â§Ã˜Â®Ã˜ÂªÃ™Å Ã˜Â§Ã˜Â± Ã˜Â§Ã™â€žÃ˜Â¬Ã˜Â§Ã˜Â¦Ã˜Â²Ã˜Â©.",
           },
           503
         );
@@ -356,7 +354,7 @@ export async function POST(request: NextRequest) {
       ) {
         return reply(
           {
-            error: "Ø§Ù„Ø¬Ø§Ø¦Ø²Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© ØºÙŠØ± Ù…ØªÙˆÙØ±Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§.",
+            error: "Ã˜Â§Ã™â€žÃ˜Â¬Ã˜Â§Ã˜Â¦Ã˜Â²Ã˜Â© Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â®Ã˜ÂªÃ˜Â§Ã˜Â±Ã˜Â© Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜ÂªÃ™Ë†Ã™ÂÃ˜Â±Ã˜Â© Ã˜Â­Ã˜Â§Ã™â€žÃ™Å Ã™â€¹Ã˜Â§.",
           },
           409
         );
@@ -388,7 +386,7 @@ export async function POST(request: NextRequest) {
       if (latestAvailable <= 0) {
         return reply(
           {
-            error: "ØªÙ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ÙØ±ØµØ© Ø§Ù„Ø¯ÙˆØ±Ø§Ù† Ø¨Ø§Ù„ÙØ¹Ù„.",
+            error: "Ã˜ÂªÃ™â€¦ Ã˜Â§Ã˜Â³Ã˜ÂªÃ˜Â®Ã˜Â¯Ã˜Â§Ã™â€¦ Ã™ÂÃ˜Â±Ã˜ÂµÃ˜Â© Ã˜Â§Ã™â€žÃ˜Â¯Ã™Ë†Ã˜Â±Ã˜Â§Ã™â€  Ã˜Â¨Ã˜Â§Ã™â€žÃ™ÂÃ˜Â¹Ã™â€ž.",
           },
           409
         );
@@ -407,7 +405,7 @@ export async function POST(request: NextRequest) {
         if (!stockUpdate.changes) {
           return reply(
             {
-              error: "Ø§Ù„Ø¬Ø§Ø¦Ø²Ø© Ù†ÙØ¯Øª Ø£Ø«Ù†Ø§Ø¡ ØªÙ†ÙÙŠØ° Ø§Ù„Ø¯ÙˆØ±Ø§Ù†.",
+              error: "Ã˜Â§Ã™â€žÃ˜Â¬Ã˜Â§Ã˜Â¦Ã˜Â²Ã˜Â© Ã™â€ Ã™ÂÃ˜Â¯Ã˜Âª Ã˜Â£Ã˜Â«Ã™â€ Ã˜Â§Ã˜Â¡ Ã˜ÂªÃ™â€ Ã™ÂÃ™Å Ã˜Â° Ã˜Â§Ã™â€žÃ˜Â¯Ã™Ë†Ã˜Â±Ã˜Â§Ã™â€ .",
             },
             409
           );
@@ -451,7 +449,7 @@ export async function POST(request: NextRequest) {
     return reply(
       {
         error:
-          "ØªØ¹Ø°Ø± ØªÙ†ÙÙŠØ° Ø§Ù„Ø¯ÙˆØ±Ø§Ù† Ø­Ø§Ù„ÙŠÙ‹Ø§. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+          "Ã˜ÂªÃ˜Â¹Ã˜Â°Ã˜Â± Ã˜ÂªÃ™â€ Ã™ÂÃ™Å Ã˜Â° Ã˜Â§Ã™â€žÃ˜Â¯Ã™Ë†Ã˜Â±Ã˜Â§Ã™â€  Ã˜Â­Ã˜Â§Ã™â€žÃ™Å Ã™â€¹Ã˜Â§. Ã™Å Ã˜Â±Ã˜Â¬Ã™â€° Ã˜Â§Ã™â€žÃ™â€¦Ã˜Â­Ã˜Â§Ã™Ë†Ã™â€žÃ˜Â© Ã™â€¦Ã˜Â±Ã˜Â© Ã˜Â£Ã˜Â®Ã˜Â±Ã™â€°.",
       },
       503
     );
