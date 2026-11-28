@@ -177,7 +177,8 @@ export default function AdminCategoriesPage() {
           ? "تم إخفاء التصنيف من المتجر."
           : "تم إظهار التصنيف في المتجر."
       );
-      loadData();
+      listRevision.current += 1;
+      setCategories((previous) => previous.map((category) => category.id === cat.id ? { ...category, is_visible: Number(!cat.is_visible) } : category));
     }
   };
 
@@ -192,7 +193,8 @@ export default function AdminCategoriesPage() {
     setDeleteTarget(null);
     if (res.ok) {
       flash(data.message || "تم حذف التصنيف بنجاح.");
-      loadData();
+      listRevision.current += 1;
+      setCategories((previous) => previous.filter((category) => category.id !== deleteTarget.id));
     }
   };
 
