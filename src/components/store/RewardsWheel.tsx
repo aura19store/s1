@@ -138,8 +138,8 @@ export function RewardsWheel() {
       ) : (
         <>
           {prizes.length > 0 && (
-            <div className="flex justify-center py-4">
-              <div className="relative w-72 h-72 rounded-full border-8 border-[#D8C8B5] bg-[#F7F4EF] shadow-lg overflow-hidden">
+            <div className="flex justify-end py-2">
+              <div className="relative w-56 h-56 md:w-64 md:h-64 rounded-full border-8 border-[#D8C8B5] bg-[#F7F4EF] shadow-lg overflow-hidden" style={{ transform: "rotate(" + rotation + "deg)", transition: "transform 4200ms cubic-bezier(0.12, 0.8, 0.18, 1)" }}>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-16 h-16 rounded-full bg-[#111111] text-[#F7F4EF] flex items-center justify-center text-sm">مكافأة</div>
                 </div>
