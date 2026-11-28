@@ -23,7 +23,7 @@ type WheelResult = {
 
 export function RewardsWheel() {
   const [wheel, setWheel] = useState<WheelState | null>(null);
-  const [prizes, setPrizes] = useState<any[]>([]);
+  const [prizes, setPrizes] = useState<any[]>([]); const [rotation, setRotation] = useState(0); const [wheelSpinning, setWheelSpinning] = useState(false);
   const [result, setResult] = useState<WheelResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [spinning, setSpinning] = useState(false);
@@ -50,12 +50,18 @@ export function RewardsWheel() {
 
   useEffect(() => {
     void loadWheel();
-  }, []);
+    const refresh = () => { if (!wheelSpinning && !spinning) void loadWheel(); };
+    const timer = window.setInterval(refresh, 10000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [wheelSpinning, spinning]);
 
   async function spin() {
-    if (spinning || !wheel || wheel.available_spins <= 0) return;
+    if (spinning || wheelSpinning || !wheel || wheel.available_spins <= 0 || prizes.length === 0) return;
 
     setSpinning(true);
+    setWheelSpinning(true);
     setError("");
     setResult(null);
 
@@ -131,6 +137,20 @@ export function RewardsWheel() {
         </p>
       ) : (
         <>
+          {prizes.length > 0 && (
+            <div className="flex justify-center py-4">
+              <div className="relative w-72 h-72 rounded-full border-8 border-[#D8C8B5] bg-[#F7F4EF] shadow-lg overflow-hidden">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-[#111111] text-[#F7F4EF] flex items-center justify-center text-sm">مكافأة</div>
+                </div>
+                {prizes.map((prize, index) => {
+                  const angle = (index * 360) / prizes.length;
+                  return <div key={prize.id} className="absolute left-1/2 top-1/2 origin-left w-[45%] text-center text-xs font-semibold" style={{ transform: "rotate(" + angle + "deg) translateX(8%)" }}><span className="block truncate">{prize.name}</span></div>;
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span>التقدم نحو الفرصة التالية</span>
@@ -148,7 +168,7 @@ export function RewardsWheel() {
             >
               <div
                 className="h-full bg-[#111111] transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
+                style={{ width: progressPercent + "%" }}
               />
             </div>
           </div>
