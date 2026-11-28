@@ -18,6 +18,7 @@ type Prize = {
 };
 
 type Snapshot = {
+  spins: Array<{ id: number; customer_name: string; customer_phone: string; prize_name: string; qualifying_delivered_orders: number; created_at: string }>;
   settings: {
     id: number;
     enabled: number;
@@ -622,6 +623,8 @@ export default function RewardsAdminPage() {
           )}
         </div>
       </section>
+
+      <section className="mt-8 rounded-2xl border border-black/10 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">سجل الفائزين</h2><p className="mt-1 text-sm opacity-70">آخر 100 عملية تدوير للعجلة.</p><div className="mt-5 overflow-x-auto">{data?.spins?.length ? (<table className="w-full min-w-[700px] text-right text-sm"><thead><tr className="border-b border-black/10"><th className="p-3">العميل</th><th className="p-3">الهاتف</th><th className="p-3">الجائزة</th><th className="p-3">الطلبات</th><th className="p-3">التاريخ</th></tr></thead><tbody>{data.spins.map((spin) => (<tr key={spin.id} className="border-b border-black/5"><td className="p-3 font-semibold">{spin.customer_name}</td><td className="p-3">{spin.customer_phone}</td><td className="p-3">{spin.prize_name}</td><td className="p-3">{spin.qualifying_delivered_orders}</td><td className="p-3">{new Date(spin.created_at).toLocaleString("ar-IQ")}</td></tr>))}</tbody></table>) : (<p className="py-8 text-center text-sm opacity-60">لا توجد عمليات فوز حتى الآن.</p>)}</div></section>
     </div>
   );
 }

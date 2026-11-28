@@ -96,6 +96,8 @@ export async function GET() {
       ),
     ]);
 
+    const spins = await queryAll(`SELECT s.id, c.name AS customer_name, c.phone AS customer_phone, p.name AS prize_name, s.qualifying_delivered_orders, s.created_at FROM aura_wheel_spins s INNER JOIN customers c ON c.id = s.customer_id INNER JOIN aura_wheel_prizes p ON p.id = s.prize_id ORDER BY datetime(s.created_at) DESC, s.id DESC LIMIT 100`);
+
     const probabilityTotal = prizes.reduce(
       (sum, prize) => sum + Number(prize.probability),
       0
