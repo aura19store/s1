@@ -50,6 +50,7 @@ export default function AdminProductsPage() {
   const revision = useRef(0);
   const sequence = useRef(0);
   const reloadNeeded = useRef(false);
+  const deletedIds = useRef(new Set<number>());
   const loadLatest = useRef<() => Promise<void>>(async () => {});
   const [pendingIds, setPendingIds] = useState(new Set<number>());
   const [error, setError] = useState("");
@@ -72,7 +73,7 @@ export default function AdminProductsPage() {
         const data = await res.json();
         if (request === sequence.current) {
           if (startRevision === revision.current && pending.current.size === 0) {
-            setProducts(data.products || []);
+            setProducts((data.products || []).filter((product: AdminProductRow) => !deletedIds.current.has(product.id)));
             setGenders(data.genders || []);
             setCategories(data.categories || []);
           } else if (pending.current.size) {
@@ -144,6 +145,7 @@ export default function AdminProductsPage() {
     const target = deleteTarget;
     if (!target || !begin(target.id)) return;
     setDeleteTarget(null);
+    deletedIds.current.add(target.id);
     setProducts(list => list.filter(item => item.id !== target.id));
     let received = false;
     try {
