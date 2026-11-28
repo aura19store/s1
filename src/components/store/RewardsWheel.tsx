@@ -23,6 +23,7 @@ type WheelResult = {
 
 export function RewardsWheel() {
   const [wheel, setWheel] = useState<WheelState | null>(null);
+  const [prizes, setPrizes] = useState<any[]>([]);
   const [result, setResult] = useState<WheelResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [spinning, setSpinning] = useState(false);
@@ -38,6 +39,7 @@ export function RewardsWheel() {
 
       const data = await response.json();
       setWheel(data.wheel);
+      setPrizes(data.prizes || []);
       setError("");
     } catch {
       setError("تعذر تحميل بيانات المكافآت.");
